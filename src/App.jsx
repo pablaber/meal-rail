@@ -13,6 +13,20 @@ const DEFAULTS = {
   trainingLabel: "Training fuel",
 };
 
+// Three drinks fill one circle. Canada's 2023 guidance says not to exceed two
+// on any day, so a second drink lands at two thirds — visibly at the ceiling —
+// and the third completes it. Everything past that keeps accruing circles.
+const DRINKS_PER_CIRCLE = 3;
+
+// [1, 1, 0.667] for eight drinks — whole circles first, the remainder last.
+const drinkCircles = (n) => {
+  const out = [];
+  for (let i = 0; i < Math.floor(n / DRINKS_PER_CIRCLE); i++) out.push(1);
+  const rem = (n % DRINKS_PER_CIRCLE) / DRINKS_PER_CIRCLE;
+  if (rem > 0) out.push(rem);
+  return out;
+};
+
 const dayKey = (d = new Date()) => {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -154,8 +168,15 @@ export default function MealRail() {
       ),
     });
 
+  const addDrink = () => writeDay({ drinks: (record.drinks || 0) + 1 });
+
+  // undefined rather than 0 so the key drops out of the JSON entirely and days
+  // without drinks stay as small as they were before this existed.
+  const setDrinkCount = (n) => writeDay({ drinks: n > 0 ? n : undefined });
+
   const checkedCount = slots.filter((s) => record.checks[s.id]).length;
   const unplanned = record.unplanned || [];
+  const drinks = record.drinks || 0;
 
   // Place each unplanned mark after however many meals were already checked when it happened.
   const unplannedAt = useMemo(() => {
@@ -181,6 +202,7 @@ export default function MealRail() {
         planned: r?.planned ?? settings.slots.length,
         checks: r ? Object.keys(r.checks || {}).length : 0,
         extra: r ? (r.unplanned || []).length : 0,
+        drinks: r?.drinks || 0,
         isToday: k === today,
       });
     }
@@ -188,6 +210,7 @@ export default function MealRail() {
   }, [days, today, settings.slots.length]);
 
   const weekExtras = history.slice(7).reduce((a, d) => a + d.extra, 0);
+  const weekDrinks = history.slice(7).reduce((a, d) => a + d.drinks, 0);
 
   const dateLabel = useMemo(() => {
     const [y, m, d] = today.split("-").map(Number);
@@ -203,13 +226,14 @@ export default function MealRail() {
   // day that is no longer on screen.
   const editTarget = useMemo(() => {
     if (!editing) return null;
+    if (editing.kind === "drinks") return drinks > 0 ? { count: drinks } : null;
     if (editing.kind === "slot") {
       const t = record.checks[editing.id];
       return t ? { time: toTimeField(t), note: (record.notes || {})[editing.id] } : null;
     }
     const u = unplanned.find((x) => x.id === editing.id);
     return u ? { time: toTimeField(u.t), note: u.note } : null;
-  }, [editing, record, unplanned]);
+  }, [editing, record, unplanned, drinks]);
 
   if (!ready) {
     return (
@@ -274,6 +298,7 @@ export default function MealRail() {
         <p className="mt-3 text-sm" style={{ color: C.muted, fontFamily: FONT.mono }}>
           {checkedCount} of {slots.length} checked
           {unplanned.length > 0 && ` · ${unplanned.length} unplanned`}
+          {drinks > 0 && ` · ${drinks} ${drinks === 1 ? "drink" : "drinks"}`}
         </p>
 
         {/* Settings */}
@@ -487,6 +512,37 @@ export default function MealRail() {
           >
             Log something unplanned
           </button>
+
+          {/* Tapping the pill only ever adds. The count beside it is the one way
+              down again, so a stray tap can't undo a night's worth of counting. */}
+          <div className="mt-3 ml-1 flex items-center gap-2">
+            <button
+              onClick={addDrink}
+              className="rounded-full px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: "transparent", color: C.red, border: `1px dashed ${C.red}` }}
+            >
+              Log a drink
+            </button>
+            {drinks > 0 && (
+              <button
+                onClick={() => setEditing({ kind: "drinks", id: "drinks", label: "Drinks" })}
+                aria-label={`Edit drinks — ${drinks} logged`}
+                className="flex items-center gap-2 rounded-full px-3 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                style={{ background: C.surface }}
+              >
+                <span className="flex items-center gap-[3px]" aria-hidden="true">
+                  {drinkCircles(drinks)
+                    .slice(0, 4)
+                    .map((fill, i) => (
+                      <DrinkDot key={i} size={10} fill={fill} />
+                    ))}
+                </span>
+                <span className="text-sm" style={{ color: C.chalk, fontFamily: FONT.mono }}>
+                  {drinks}
+                </span>
+              </button>
+            )}
+          </div>
         </section>
 
         {/* History. mt-auto takes up whatever the rail leaves over, so a short
@@ -516,6 +572,16 @@ export default function MealRail() {
                     />
                   ))}
                 </div>
+                {/* A fixed-height band, laid out across rather than up, so the
+                    day numbers stay on one line and drinks never read as meals.
+                    Three 6px dots is exactly what a column has room for. */}
+                <div className="flex h-[6px] items-center justify-center gap-[1px]">
+                  {drinkCircles(d.drinks)
+                    .slice(0, 3)
+                    .map((fill, i) => (
+                      <DrinkDot key={i} size={6} fill={fill} />
+                    ))}
+                </div>
                 <span
                   className="text-[10px]"
                   style={{ color: d.isToday ? C.chalk : C.rail, fontFamily: FONT.mono }}
@@ -528,7 +594,10 @@ export default function MealRail() {
           <p className="mt-4 text-sm" style={{ color: C.muted }}>
             {weekExtras === 0
               ? "Nothing unplanned logged this week."
-              : `${weekExtras} unplanned ${weekExtras === 1 ? "snack" : "snacks"} in the last 7 days.`}
+              : `${weekExtras} unplanned ${weekExtras === 1 ? "snack" : "snacks"} in the last 7 days.`}{" "}
+            {weekDrinks === 0
+              ? "No drinks logged this week."
+              : `${weekDrinks} ${weekDrinks === 1 ? "drink" : "drinks"} in the last 7 days.`}
           </p>
           <p
             className="mt-4 text-xs"
@@ -546,7 +615,22 @@ export default function MealRail() {
         </section>
       </div>
 
-      {editing && editTarget && (
+      {editing && editTarget && editing.kind === "drinks" && (
+        <DrinkDialog
+          count={editTarget.count}
+          onClose={() => setEditing(null)}
+          onSave={(n) => {
+            setDrinkCount(n);
+            setEditing(null);
+          }}
+          onClear={() => {
+            setDrinkCount(0);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {editing && editTarget && editing.kind !== "drinks" && (
         <EditDialog
           key={editing.id}
           title={editing.label}
@@ -601,13 +685,26 @@ function UnplannedRow({ u, onEdit }) {
   );
 }
 
-// One editor for both kinds of entry. It holds a draft so a half-typed note or
-// a momentarily empty time field never reaches the record, and so Cancel is a
-// real cancel.
-function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose }) {
-  const [draftTime, setDraftTime] = useState(time);
-  const [draftNote, setDraftNote] = useState(note || "");
+// A circle that fills from the bottom. One component for the badge and the
+// two-week strip both, so a third of a circle looks the same in either place.
+function DrinkDot({ size, fill }) {
+  return (
+    <span
+      className="relative block shrink-0 overflow-hidden rounded-full"
+      style={{ width: size, height: size, background: C.rail }}
+      aria-hidden="true"
+    >
+      <span
+        className="absolute bottom-0 left-0 right-0 block"
+        style={{ height: `${fill * 100}%`, background: C.red }}
+      />
+    </span>
+  );
+}
 
+// The shell both editors share — scrim, safe-area padding, Escape and a
+// backdrop tap to close. Sharing it is what keeps the two looking alike.
+function Dialog({ title, onClose, children }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
@@ -615,10 +712,6 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
-
-  const field =
-    "mt-1 w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
-  const fieldStyle = { background: C.surfaceHi, color: C.chalk, border: "none" };
 
   return (
     <div
@@ -648,67 +741,159 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
         <h2 className="mt-1 text-2xl leading-tight" style={{ fontFamily: FONT.display }}>
           {title}
         </h2>
-
-        <label className="mt-4 block text-sm" style={{ color: C.muted }}>
-          Time
-          <span
-            className="mt-1 block w-full overflow-hidden rounded-lg focus-within:ring-2 focus-within:ring-white"
-            style={{ background: C.surfaceHi }}
-          >
-            <input
-              type="time"
-              value={draftTime}
-              onChange={(e) => setDraftTime(e.target.value)}
-              className="block w-full min-w-0 max-w-full px-3 py-2 text-sm focus:outline-none"
-              style={{
-                background: "transparent",
-                color: C.chalk,
-                border: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </span>
-        </label>
-
-        <label className="mt-4 block text-sm" style={{ color: C.muted }}>
-          Notes
-          <textarea
-            rows={3}
-            value={draftNote}
-            onChange={(e) => setDraftNote(e.target.value)}
-            placeholder="Anything worth remembering"
-            className={`${field} resize-none`}
-            style={fieldStyle}
-          />
-        </label>
-
-        <div className="mt-5 flex items-center justify-between gap-3">
-          <button
-            onClick={onRemove}
-            className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={{ background: "transparent", color: C.brass }}
-          >
-            {removeLabel}
-          </button>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: "transparent", color: C.muted }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => onSave({ time: draftTime, note: draftNote.trim() })}
-              disabled={!draftTime}
-              className="rounded-lg px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
-              style={{ background: C.done, color: C.ground }}
-            >
-              Save
-            </button>
-          </div>
-        </div>
+        {children}
       </div>
     </div>
+  );
+}
+
+// The pill downstairs only counts up. Coming back down happens here, where it
+// takes a deliberate visit — and a draft, so Cancel is a real cancel.
+function DrinkDialog({ count, onSave, onClear, onClose }) {
+  const [draft, setDraft] = useState(count);
+
+  const step =
+    "flex h-11 w-11 items-center justify-center rounded-full text-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40";
+  const stepStyle = { background: C.surfaceHi, color: C.chalk };
+
+  return (
+    <Dialog title="Drinks" onClose={onClose}>
+      <div className="mt-5 flex items-center justify-center gap-6">
+        <button
+          onClick={() => setDraft(Math.max(0, draft - 1))}
+          disabled={draft === 0}
+          aria-label="One fewer drink"
+          className={step}
+          style={stepStyle}
+        >
+          −
+        </button>
+        <span
+          className="min-w-[2ch] text-center text-4xl"
+          style={{ fontFamily: FONT.display }}
+          aria-live="polite"
+        >
+          {draft}
+        </span>
+        <button
+          onClick={() => setDraft(draft + 1)}
+          aria-label="One more drink"
+          className={step}
+          style={stepStyle}
+        >
+          +
+        </button>
+      </div>
+
+      <div className="mt-4 flex h-3 items-center justify-center gap-[3px]">
+        {drinkCircles(draft)
+          .slice(0, 4)
+          .map((fill, i) => (
+            <DrinkDot key={i} size={12} fill={fill} />
+          ))}
+      </div>
+
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <button
+          onClick={onClear}
+          className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: "transparent", color: C.brass }}
+        >
+          Clear
+        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: "transparent", color: C.muted }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(draft)}
+            className="rounded-lg px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.done, color: C.ground }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+// One editor for both kinds of entry. It holds a draft so a half-typed note or
+// a momentarily empty time field never reaches the record, and so Cancel is a
+// real cancel.
+function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose }) {
+  const [draftTime, setDraftTime] = useState(time);
+  const [draftNote, setDraftNote] = useState(note || "");
+
+  const field =
+    "mt-1 w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
+  const fieldStyle = { background: C.surfaceHi, color: C.chalk, border: "none" };
+
+  return (
+    <Dialog title={title} onClose={onClose}>
+      <label className="mt-4 block text-sm" style={{ color: C.muted }}>
+        Time
+        <span
+          className="mt-1 block w-full overflow-hidden rounded-lg focus-within:ring-2 focus-within:ring-white"
+          style={{ background: C.surfaceHi }}
+        >
+          <input
+            type="time"
+            value={draftTime}
+            onChange={(e) => setDraftTime(e.target.value)}
+            className="block w-full min-w-0 max-w-full px-3 py-2 text-sm focus:outline-none"
+            style={{
+              background: "transparent",
+              color: C.chalk,
+              border: "none",
+              boxSizing: "border-box",
+            }}
+          />
+        </span>
+      </label>
+
+      <label className="mt-4 block text-sm" style={{ color: C.muted }}>
+        Notes
+        <textarea
+          rows={3}
+          value={draftNote}
+          onChange={(e) => setDraftNote(e.target.value)}
+          placeholder="Anything worth remembering"
+          className={`${field} resize-none`}
+          style={fieldStyle}
+        />
+      </label>
+
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <button
+          onClick={onRemove}
+          className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: "transparent", color: C.brass }}
+        >
+          {removeLabel}
+        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: "transparent", color: C.muted }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave({ time: draftTime, note: draftNote.trim() })}
+            disabled={!draftTime}
+            className="rounded-lg px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+            style={{ background: C.done, color: C.ground }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </Dialog>
   );
 }

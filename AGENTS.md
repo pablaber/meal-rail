@@ -52,6 +52,7 @@ One JSON blob under the `mealrail:v1` key:
       checks: { [slotId]: isoTimestamp },
       notes: { [slotId]: string },   // optional, absent on days with no notes
       unplanned: [{ id, t, note }],  // note optional
+      drinks: number,                // optional, absent on days with no drinks
       training,
       planned,
     },
@@ -63,7 +64,14 @@ Days older than 400 are trimmed on every save. Changing this shape breaks existi
 users' data and their backup files — migrate in `storage.js`, don't bump the key
 casually. Notes sit in a map beside `checks` rather than turning each check into
 an object, so a backup taken before notes existed still loads unchanged; read
-them as `(record.notes || {})[id]`.
+them as `(record.notes || {})[id]`. `drinks` is the same deal — read it as
+`record.drinks || 0`, and write `undefined` rather than `0` so the key drops out
+of days where nothing was logged.
+
+`DRINKS_PER_CIRCLE` in `App.jsx` is 3: each drink fills a third of a red circle,
+so two drinks — Canada's per-day ceiling — read as two thirds and the third
+completes it. The circles are drawn by `DrinkDot`, shared by the day view badge
+and the two-week strip.
 
 `settings.slots` has no UI. It is edited by hand or by restoring a backup — the
 app is a checklist, and re-cutting the slots mid-history makes the two-week

@@ -7,6 +7,7 @@ export const C = {
   muted: "#89AAA8",
   done: "#9CC5A1",
   brass: "#D8A657",
+  red: "#EA6962",
   scrim: "rgba(8,20,23,0.72)",
 };
 
