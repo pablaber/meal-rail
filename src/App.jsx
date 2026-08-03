@@ -648,13 +648,23 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
 
         <label className="mt-4 block text-sm" style={{ color: C.muted }}>
           Time
-          <input
-            type="time"
-            value={draftTime}
-            onChange={(e) => setDraftTime(e.target.value)}
-            className={`${field} block min-w-0 max-w-full`}
-            style={{ ...fieldStyle, boxSizing: "border-box" }}
-          />
+          <span
+            className="mt-1 block w-full overflow-hidden rounded-lg focus-within:ring-2 focus-within:ring-white"
+            style={{ background: C.surfaceHi }}
+          >
+            <input
+              type="time"
+              value={draftTime}
+              onChange={(e) => setDraftTime(e.target.value)}
+              className="block w-full min-w-0 max-w-full px-3 py-2 text-sm focus:outline-none"
+              style={{
+                background: "transparent",
+                color: C.chalk,
+                border: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </span>
         </label>
 
         <label className="mt-4 block text-sm" style={{ color: C.muted }}>
