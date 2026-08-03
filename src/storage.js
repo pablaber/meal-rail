@@ -33,6 +33,29 @@ export async function clear() {
   }
 }
 
+// The update check (src/update.js) reloads the page when it finds a newer build
+// deployed. This remembers which build that was, so a reload that somehow lands
+// on the old version again can't turn into a loop. Session-scoped and
+// synchronous on purpose: it has to survive the reload it guards and nothing
+// more, and the decision to reload can't wait on a promise.
+const RELOAD_KEY = "mealrail:reloaded-for";
+
+export function reloadedFor() {
+  try {
+    return sessionStorage.getItem(RELOAD_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function markReloadedFor(buildId) {
+  try {
+    sessionStorage.setItem(RELOAD_KEY, buildId);
+  } catch {
+    // Without the guard an update still applies; it just isn't loop-proof.
+  }
+}
+
 // localStorage is per-browser and per-device, and clearing site data wipes it.
 // These two let you take a backup and move between devices by hand.
 export function exportFile(state) {

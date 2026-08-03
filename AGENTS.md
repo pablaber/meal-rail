@@ -18,10 +18,11 @@ running the app.
 ## Layout
 
 ```
-src/main.jsx      entry point; registers the service worker (prod only)
+src/main.jsx      entry point; starts the service worker and the update check
 src/App.jsx       the entire UI — one component plus UnplannedRow
 src/storage.js    persistence; the only file that touches a storage API
 src/theme.js      color and font constants
+src/update.js     build id, service worker registration, update check
 public/sw.js      offline cache
 index.html        PWA meta tags
 ```
@@ -61,4 +62,25 @@ publishes to GitHub Pages. The workflow passes `BASE_PATH=/<repo-name>/` because
 project Pages sites are served from a subpath; `vite.config.js` reads it. Never
 hardcode a base path.
 
-Bump `CACHE` in `public/sw.js` when changing the service worker's caching strategy.
+## Updates
+
+An installed PWA can outlive many releases — iOS resumes a home-screen app
+rather than reloading it, so nothing ever fetches the new build. Three pieces
+handle that, and they only work together:
+
+- `vite.config.js` stamps each build with an id (the commit on CI) — inlined as
+  `__BUILD_ID__` and written to `dist/version.json`.
+- `src/update.js` fetches `version.json` on load and whenever the app returns to
+  the foreground. A different id means drop the caches and reload. A
+  session-scoped guard in `storage.js` stops a stale CDN edge causing a loop.
+- `public/sw.js` is registered as `sw.js?v=<build id>`. The file itself never
+  changes, so the query string is what makes the browser install a new worker.
+
+So don't cache `version.json`, don't drop the query string from the
+registration, and don't give navigations anything but a network-first,
+`no-store` fetch — `index.html` names the fingerprinted bundles, and a stale
+copy pins the app to an old build.
+
+The cache name is deliberately not versioned: a per-build cache would sit empty
+for the session following an update, which is when offline is most likely to be
+needed. It is bounded by `MAX_ENTRIES` instead, and the update reload clears it.
