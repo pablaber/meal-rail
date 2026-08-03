@@ -3,6 +3,12 @@
 html {
   background: #10262b;
   color-scheme: dark;
+  scrollbar-width: none;
+  overscroll-behavior-y: none;
+}
+
+html::-webkit-scrollbar {
+  display: none;
 }
 
 body {
@@ -11,6 +17,12 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
   -webkit-tap-highlight-color: transparent;
+  scrollbar-width: none;
+  overscroll-behavior-y: none;
+}
+
+body::-webkit-scrollbar {
+  display: none;
 }
 
 button,
