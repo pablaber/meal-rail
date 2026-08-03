@@ -9,6 +9,11 @@ No accounts, no server, no calorie counting. Data lives in the browser.
 It installs as a PWA — open the deployed URL, then Share → Add to Home Screen. It
 runs full-screen and works offline.
 
+An installed copy checks for a new release each time you bring it to the
+foreground, and reloads itself when it finds one. Settings shows the version
+you're running and has a **Check for updates** button for when you don't want to
+wait.
+
 ## Running it
 
 ```bash

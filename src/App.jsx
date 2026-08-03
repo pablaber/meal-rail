@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { C, FONT } from "./theme.js";
 import { load, save, clear, exportFile, importFile } from "./storage.js";
+import { BUILD_ID, checkForUpdate } from "./update.js";
 
 const DEFAULTS = {
   slots: [
@@ -332,6 +333,30 @@ export default function MealRail() {
                 style={{ background: "transparent", color: confirmClear ? C.brass : C.muted }}
               >
                 {confirmClear ? "Tap again to erase" : "Erase all history"}
+              </button>
+            </div>
+
+            {/* An installed copy checks for itself whenever it comes back to
+                the foreground; this is for when you want to know right now. */}
+            <div
+              className="mt-5 flex items-center justify-between gap-3 pt-4"
+              style={{ borderTop: `1px solid ${C.rail}` }}
+            >
+              <span className="text-xs" style={{ color: C.rail, fontFamily: FONT.mono }}>
+                Version {BUILD_ID}
+              </span>
+              <button
+                onClick={async () => {
+                  setNotice("Checking…");
+                  const result = await checkForUpdate({ force: true });
+                  if (result === "updating") setNotice("Updating…");
+                  else if (result === "unknown") setNotice("Couldn't check — you may be offline");
+                  else setNotice("You're on the latest version");
+                }}
+                className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                style={{ background: C.surfaceHi, color: C.chalk }}
+              >
+                Check for updates
               </button>
             </div>
           </section>
