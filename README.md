@@ -6,6 +6,9 @@ than on it — visible, but not scored.
 
 No accounts, no server, no calorie counting. Data lives in the browser.
 
+It installs as a PWA — open the deployed URL, then Share → Add to Home Screen. It
+runs full-screen and works offline.
+
 ## Running it
 
 ```bash
@@ -13,47 +16,11 @@ npm install
 npm run dev
 ```
 
-## Putting it on GitHub
-
-```bash
-git init
-git add .
-git commit -m "Meal Rail"
-git branch -M main
-git remote add origin git@github.com:<you>/meal-rail.git
-git push -u origin main
-```
-
-Then in the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-That single setting is the only manual step. The workflow in
-`.github/workflows/deploy.yml` builds on every push to `main` and publishes to
-`https://<you>.github.io/meal-rail/`.
-
-The workflow passes `BASE_PATH=/<repo-name>/` to the build, because project Pages
-sites are served from a subpath. Renaming the repo is safe; the value is derived
-from the repo name at build time.
-
-### Installing it on a phone
-
-Open the deployed URL, then Share → Add to Home Screen. It runs full-screen and
-works offline via `public/sw.js`.
-
 ## How it's put together
 
-```
-src/
-  main.jsx      entry point, registers the service worker
-  App.jsx       the whole UI
-  storage.js    persistence — the only file that touches a storage API
-  theme.js      colors and type
-public/
-  sw.js         offline cache
-  manifest.webmanifest
-```
-
-Colors and fonts come from `theme.js` as inline styles; Tailwind handles layout
-and spacing only. That split is deliberate — the palette is small enough to read
-in one screen and change in one place.
+React and Vite, with Tailwind for layout and a small palette in `theme.js` for
+everything visual. `src/App.jsx` is the whole UI; `src/storage.js` is the only file
+that touches a storage API.
 
 ## About the data
 
@@ -68,8 +35,8 @@ Hence **Download a backup** and **Restore a backup** in settings. Daily use shou
 keep eviction from ever triggering, but take a backup occasionally.
 
 If you later want real sync, `storage.js` is the seam: `load()` and `save()` are
-already async, so swapping their bodies for `fetch()` against a small Fastify +
-SQLite service is a change to one file. Nothing in `App.jsx` needs to know.
+already async, so swapping their bodies for `fetch()` against a small service is a
+change to one file. Nothing in `App.jsx` needs to know.
 
 ## Things worth adding next
 
