@@ -21,11 +21,9 @@ const SNACK_LABEL = "Snack";
 // and have none. They match heights only if the fill keeps the border box the
 // edge would have occupied.
 //
-// Note the bubbles set no text size. `button, input { font: inherit }` in
-// index.css is unlayered, so it outranks Tailwind's layered utilities and every
-// button in the app renders at the inherited 16px whatever text-* it carries.
-// A bubble that asked for text-sm would be the one element on the row to get
-// it, and would come up short against the buttons it sits beside.
+// The bubbles carry text-base for the same reason the add buttons do: a row of
+// pills only lines up while every one of them sets the same type size, and a
+// bubble left to inherit would follow whatever wrapped it later.
 const BUBBLE_EDGE = "1px solid transparent";
 
 // A row carrying a note is optically top-heavy even when it is geometrically
@@ -414,7 +412,7 @@ export default function MealRail() {
                   exportFile({ settings, days });
                   setNotice("Backup downloaded");
                 }}
-                className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 style={{ background: C.surfaceHi, color: C.chalk }}
               >
                 Download a backup
@@ -436,7 +434,7 @@ export default function MealRail() {
                     setNotice(e.message);
                   }
                 }}
-                className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 style={{ background: C.surfaceHi, color: C.chalk }}
               >
                 Restore a backup
@@ -450,7 +448,7 @@ export default function MealRail() {
                   setNotice("History erased");
                 }}
                 onBlur={() => setConfirmClear(false)}
-                className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 style={{ background: "transparent", color: confirmClear ? C.brass : C.muted }}
               >
                 {confirmClear ? "Tap again to erase" : "Erase all history"}
@@ -474,7 +472,7 @@ export default function MealRail() {
                   else if (result === "unknown") setNotice("Couldn't check — you may be offline");
                   else setNotice("You're on the latest version");
                 }}
-                className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 style={{ background: C.surfaceHi, color: C.chalk }}
               >
                 Check for updates
@@ -607,7 +605,7 @@ export default function MealRail() {
               <button
                 onClick={() => setEditing({ kind: "drinks", id: "drinks", label: "Drinks" })}
                 aria-label={`Edit drinks — ${drinks} logged`}
-                className="flex items-center gap-2 rounded-full px-3 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="flex items-center gap-2 rounded-full px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                 style={{ background: C.surface, border: BUBBLE_EDGE }}
               >
                 <span className="flex items-center gap-[3px]" aria-hidden="true">
@@ -625,7 +623,7 @@ export default function MealRail() {
               <span
                 role="img"
                 aria-label="No drinks logged today"
-                className="flex items-center gap-2 rounded-full px-3 py-2"
+                className="flex items-center gap-2 rounded-full px-3 py-2 text-base"
                 style={{ background: C.surface, border: BUBBLE_EDGE }}
               >
                 <span
@@ -781,7 +779,7 @@ function AddButton({ onClick, color, label, grow = true, width, done = false }) 
     <button
       onClick={onClick}
       disabled={done}
-      className={`flex ${grow ? "flex-1" : ""} items-center justify-center gap-2 rounded-full px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
+      className={`flex ${grow ? "flex-1" : ""} items-center justify-center gap-2 rounded-full px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
       style={{ background: "transparent", color: tone, border: `1px dashed ${tone}`, width }}
     >
       {done ? <IconTick color={tone} /> : <IconPlus color={tone} />}
@@ -1083,7 +1081,7 @@ function DrinkDialog({ count, onSave, onClear, onClose }) {
   const [draft, setDraft] = useState(count);
 
   const step =
-    "flex h-11 w-11 items-center justify-center rounded-full text-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40";
+    "flex h-11 w-11 items-center justify-center rounded-full text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40";
   const stepStyle = { background: C.surfaceHi, color: C.chalk };
 
   return (
@@ -1126,7 +1124,7 @@ function DrinkDialog({ count, onSave, onClear, onClose }) {
       <div className="mt-5 flex items-center justify-between gap-3">
         <button
           onClick={onClear}
-          className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           style={{ background: "transparent", color: C.brass }}
         >
           Clear
@@ -1134,14 +1132,14 @@ function DrinkDialog({ count, onSave, onClear, onClose }) {
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{ background: "transparent", color: C.muted }}
           >
             Cancel
           </button>
           <button
             onClick={() => onSave(draft)}
-            className="rounded-lg px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{ background: C.done, color: C.ground }}
           >
             Save
@@ -1201,7 +1199,7 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
       <div className="mt-5 flex items-center justify-between gap-3">
         <button
           onClick={onRemove}
-          className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           style={{ background: "transparent", color: C.brass }}
         >
           {removeLabel}
@@ -1209,7 +1207,7 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
         <div className="flex gap-2">
           <button
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{ background: "transparent", color: C.muted }}
           >
             Cancel
@@ -1217,7 +1215,7 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
           <button
             onClick={() => onSave({ time: draftTime, note: draftNote.trim() })}
             disabled={!draftTime}
-            className="rounded-lg px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+            className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
             style={{ background: C.done, color: C.ground }}
           >
             Save

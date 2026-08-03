@@ -39,6 +39,11 @@ index.html        PWA meta tags
 - Interactive elements need a visible focus ring
   (`focus:outline-none focus-visible:ring-2 focus-visible:ring-white`) and an
   `aria-*` attribute where the label isn't self-evident.
+- **Anything in `index.css` that styles an element by tag belongs in
+  `@layer base`.** Unlayered CSS outranks layered CSS whatever the specificity,
+  and Tailwind's utilities are layered — an unlayered `button { font: inherit }`
+  once beat every `text-*` class in the app, silently, for months. Tailwind's
+  preflight already normalises form elements; you rarely need such a rule at all.
 
 ## Data model
 
