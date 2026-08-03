@@ -361,7 +361,7 @@ export default function MealRail() {
           <div className="relative">
             {/* vertical line */}
             <div
-              className="absolute left-[11px] top-3 bottom-3 w-px"
+              className="absolute left-[19.5px] top-3 bottom-3 w-px"
               style={{ background: C.rail }}
               aria-hidden="true"
             />
