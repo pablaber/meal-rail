@@ -47,13 +47,27 @@ One JSON blob under the `mealrail:v1` key:
 ```js
 {
   settings: { slots: [{ id, label }], trainingEnabled, trainingLabel },
-  days: { "YYYY-MM-DD": { checks: { [slotId]: isoTimestamp }, unplanned: [{ id, t }], training, planned } }
+  days: {
+    "YYYY-MM-DD": {
+      checks: { [slotId]: isoTimestamp },
+      notes: { [slotId]: string },   // optional, absent on days with no notes
+      unplanned: [{ id, t, note }],  // note optional
+      training,
+      planned,
+    },
+  },
 }
 ```
 
 Days older than 400 are trimmed on every save. Changing this shape breaks existing
 users' data and their backup files — migrate in `storage.js`, don't bump the key
-casually.
+casually. Notes sit in a map beside `checks` rather than turning each check into
+an object, so a backup taken before notes existed still loads unchanged; read
+them as `(record.notes || {})[id]`.
+
+`settings.slots` has no UI. It is edited by hand or by restoring a backup — the
+app is a checklist, and re-cutting the slots mid-history makes the two-week
+strip lie about days that were planned differently.
 
 ## Deploying
 
