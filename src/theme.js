@@ -8,6 +8,11 @@ export const C = {
   done: "#9CC5A1",
   brass: "#D8A657",
   red: "#EA6962",
+  gold: "#F2C55C",
+  goldGlow: "rgba(242,197,92,0.6)",
+  silver: "#A2ADB0",
+  redDeep: "#7E3A36",
+  sheen: "rgba(255,255,255,0.4)",
   scrim: "rgba(8,20,23,0.72)",
 };
 

@@ -68,10 +68,23 @@ them as `(record.notes || {})[id]`. `drinks` is the same deal — read it as
 `record.drinks || 0`, and write `undefined` rather than `0` so the key drops out
 of days where nothing was logged.
 
-`DRINKS_PER_CIRCLE` in `App.jsx` is 3: each drink fills a third of a red circle,
-so two drinks — Canada's per-day ceiling — read as two thirds and the third
-completes it. The circles are drawn by `DrinkDot`, shared by the day view badge
-and the two-week strip.
+`DRINKS_PER_CIRCLE` in `App.jsx` is 2: each drink fills half a red circle, so a
+full circle is exactly Canada's per-day ceiling and one drink sits visibly half
+way there. Change that one number to re-cut the scale — `drinkCircles`, the
+badge tiers below, and every surface all read from it. `DRINK_DOTS_MAX` and
+`STRIP_DRINK_DOTS` beside it cap how many circles each surface draws; past the
+cap the count beside them is the honest number. The circles are drawn by
+`DrinkDot`, shared by the day view badge and the two-week strip.
+
+Every day in the two-week strip but today is graded by `dayBadge` and drawn by
+`DayBadge`. An unplanned entry is one negative; drinks are one negative per
+circle *started*, so the first drink already counts and the third opens a second
+circle. No negatives and every planned slot checked is `gold`, no negatives and
+some checked is `green`, one negative is `silver`, two is `bad`, three or more
+is `terrible`. A day with nothing checked caps at `empty` unless its negatives
+alone earned worse, and a day with no entries at all gets nothing. Grades are
+derived at render time — nothing about them is persisted, so old backups load
+unchanged.
 
 `settings.slots` has no UI. It is edited by hand or by restoring a backup — the
 app is a checklist, and re-cutting the slots mid-history makes the two-week

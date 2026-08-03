@@ -13,18 +13,50 @@ const DEFAULTS = {
   trainingLabel: "Training fuel",
 };
 
-// Three drinks fill one circle. Canada's 2023 guidance says not to exceed two
-// on any day, so a second drink lands at two thirds — visibly at the ceiling —
-// and the third completes it. Everything past that keeps accruing circles.
-const DRINKS_PER_CIRCLE = 3;
+// Two drinks fill one circle — Canada's 2023 guidance says not to exceed two on
+// any day, so a full circle is exactly the ceiling and one drink sits visibly
+// half way there. Everything past that keeps accruing circles.
+const DRINKS_PER_CIRCLE = 2;
 
-// [1, 1, 0.667] for eight drinks — whole circles first, the remainder last.
+// How many circles each surface has room for. Past the cap the count beside
+// them is the honest number; the circles are only ever the shape of the day.
+const DRINK_DOTS_MAX = 4;
+const STRIP_DRINK_DOTS = 3;
+
+// [1, 1, 0.5] for five drinks — whole circles first, the remainder last.
 const drinkCircles = (n) => {
   const out = [];
   for (let i = 0; i < Math.floor(n / DRINKS_PER_CIRCLE); i++) out.push(1);
   const rem = (n % DRINKS_PER_CIRCLE) / DRINKS_PER_CIRCLE;
   if (rem > 0) out.push(rem);
   return out;
+};
+
+// A finished day gets graded on what it ended up looking like. An unplanned
+// entry is one negative; drinks are one negative per circle *started*, so the
+// first drink already counts and the third opens a second circle — the grade
+// moves with DRINKS_PER_CIRCLE rather than restating it.
+const dayBadge = ({ planned, checks, extra, drinks }) => {
+  if (checks === 0 && extra === 0 && drinks === 0) return null;
+  const negatives = extra + Math.ceil(drinks / DRINKS_PER_CIRCLE);
+  if (negatives >= 3) return "terrible";
+  if (negatives === 2) return "bad";
+  // A day with no meals on it can't be talked up by a light night: it caps at
+  // "empty" unless the negatives alone already earned something worse.
+  if (checks === 0) return "empty";
+  if (negatives === 1) return "silver";
+  return checks >= planned ? "gold" : "green";
+};
+
+const BADGE_SIZE = 11;
+
+const BADGE_LABEL = {
+  gold: "Perfect day",
+  green: "Good day",
+  silver: "Decent day",
+  bad: "Bad day",
+  terrible: "Terrible day",
+  empty: "No meals logged",
 };
 
 const dayKey = (d = new Date()) => {
@@ -197,14 +229,17 @@ export default function MealRail() {
     for (let i = 13; i >= 0; i--) {
       const k = shiftDay(today, -i);
       const r = days[k];
-      out.push({
+      const isToday = k === today;
+      const entry = {
         key: k,
         planned: r?.planned ?? settings.slots.length,
         checks: r ? Object.keys(r.checks || {}).length : 0,
         extra: r ? (r.unplanned || []).length : 0,
         drinks: r?.drinks || 0,
-        isToday: k === today,
-      });
+        isToday,
+      };
+      // Today is still being written, so it isn't graded yet.
+      out.push({ ...entry, badge: isToday ? null : dayBadge(entry) });
     }
     return out;
   }, [days, today, settings.slots.length]);
@@ -532,7 +567,7 @@ export default function MealRail() {
               >
                 <span className="flex items-center gap-[3px]" aria-hidden="true">
                   {drinkCircles(drinks)
-                    .slice(0, 4)
+                    .slice(0, DRINK_DOTS_MAX)
                     .map((fill, i) => (
                       <DrinkDot key={i} size={10} fill={fill} />
                     ))}
@@ -577,10 +612,15 @@ export default function MealRail() {
                     Three 6px dots is exactly what a column has room for. */}
                 <div className="flex h-[6px] items-center justify-center gap-[1px]">
                   {drinkCircles(d.drinks)
-                    .slice(0, 3)
+                    .slice(0, STRIP_DRINK_DOTS)
                     .map((fill, i) => (
                       <DrinkDot key={i} size={6} fill={fill} />
                     ))}
+                </div>
+                {/* The verdict on a finished day. A fixed height, so the days
+                    without one keep their numbers on the same baseline. */}
+                <div className="flex h-[13px] items-center justify-center">
+                  {d.badge && <DayBadge tier={d.badge} />}
                 </div>
                 <span
                   className="text-[10px]"
@@ -685,8 +725,70 @@ function UnplannedRow({ u, onEdit }) {
   );
 }
 
+// One mark for the whole day. Shape carries the grade as much as colour does —
+// a lit disc, then a plain one, then an empty ring, then a ring in pieces —
+// because at eleven pixels colour alone can't hold five tiers apart. It is the
+// only glyph in a strip column that isn't decorative, so it gets a name.
+function DayBadge({ tier }) {
+  const label = BADGE_LABEL[tier];
+
+  if (tier === "terrible") {
+    // Three arcs and three gaps: the ring, come apart.
+    const w = BADGE_SIZE / 4;
+    const r = (BADGE_SIZE - w) / 2;
+    const seg = (2 * Math.PI * r) / 3;
+    return (
+      <svg
+        width={BADGE_SIZE}
+        height={BADGE_SIZE}
+        className="block"
+        role="img"
+        aria-label={label}
+      >
+        <title>{label}</title>
+        <circle
+          cx={BADGE_SIZE / 2}
+          cy={BADGE_SIZE / 2}
+          r={r}
+          fill="none"
+          stroke={C.redDeep}
+          strokeWidth={w}
+          strokeDasharray={`${(seg * 2) / 3} ${seg / 3}`}
+          transform={`rotate(-90 ${BADGE_SIZE / 2} ${BADGE_SIZE / 2})`}
+        />
+      </svg>
+    );
+  }
+
+  const styles = {
+    gold: {
+      background: C.gold,
+      boxShadow: `0 0 ${BADGE_SIZE / 2}px ${C.goldGlow}, inset 0 1px 0 ${C.sheen}`,
+    },
+    green: { background: C.done },
+    silver: { background: C.silver },
+    bad: { border: `${BADGE_SIZE / 6}px solid ${C.red}` },
+    empty: { border: `1px solid ${C.rail}`, opacity: 0.7 },
+  };
+
+  return (
+    <span
+      className="block"
+      role="img"
+      aria-label={label}
+      title={label}
+      style={{
+        width: BADGE_SIZE,
+        height: BADGE_SIZE,
+        borderRadius: "50%",
+        ...styles[tier],
+      }}
+    />
+  );
+}
+
 // A circle that fills from the bottom. One component for the badge and the
-// two-week strip both, so a third of a circle looks the same in either place.
+// two-week strip both, so half a circle looks the same in either place.
 function DrinkDot({ size, fill }) {
   return (
     <span
@@ -787,7 +889,7 @@ function DrinkDialog({ count, onSave, onClear, onClose }) {
 
       <div className="mt-4 flex h-3 items-center justify-center gap-[3px]">
         {drinkCircles(draft)
-          .slice(0, 4)
+          .slice(0, DRINK_DOTS_MAX)
           .map((fill, i) => (
             <DrinkDot key={i} size={12} fill={fill} />
           ))}
