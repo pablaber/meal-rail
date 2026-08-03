@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+html {
+  background: #10262b;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  /* Keep content clear of the iPhone notch and home indicator when installed. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input {
+  font: inherit;
+}
