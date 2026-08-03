@@ -26,15 +26,6 @@ const SNACK_LABEL = "Snack";
 // bubble left to inherit would follow whatever wrapped it later.
 const BUBBLE_EDGE = "1px solid transparent";
 
-// A row carrying a note is optically top-heavy even when it is geometrically
-// centred: the meal name is a serif line with no descenders sitting high in a
-// tall line box, and the note under it is a small line whose descenders hang
-// below its own. So the ink of the pair sits lower than the box the two share,
-// and a node centred on that box reads a few pixels high. This puts it back on
-// the middle the eye actually sees. It moves the time with it, so the two things
-// pinned to the row's edges stay level with each other.
-const NOTE_NUDGE = 3;
-
 // Two drinks fill one circle — Canada's 2023 guidance says not to exceed two on
 // any day, so a full circle is exactly the ceiling and one drink sits visibly
 // half way there. Everything past that keeps accruing circles.
@@ -517,7 +508,7 @@ export default function MealRail() {
                         style={{
                           background: t ? C.done : C.ground,
                           border: `1px solid ${t ? C.done : C.rail}`,
-                          transform: `translateY(${note ? NOTE_NUDGE : 0}px) ${t ? "scale(1)" : "scale(0.82)"}`,
+                          transform: t ? "scale(1)" : "scale(0.82)",
                         }}
                       >
                         {t && (
@@ -554,7 +545,6 @@ export default function MealRail() {
                         style={{
                           color: t ? C.done : C.rail,
                           fontFamily: FONT.mono,
-                          transform: `translateY(${note ? NOTE_NUDGE : 0}px)`,
                         }}
                       >
                         {t ? clock(t) : "—"}
@@ -838,7 +828,6 @@ function WorkoutRow({ w, onEdit }) {
         style={{
           background: C.done,
           border: `1px solid ${C.done}`,
-          transform: `translateY(${w.note ? NOTE_NUDGE : 0}px)`,
         }}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
@@ -867,7 +856,6 @@ function WorkoutRow({ w, onEdit }) {
         style={{
           color: C.done,
           fontFamily: FONT.mono,
-          transform: `translateY(${w.note ? NOTE_NUDGE : 0}px)`,
         }}
       >
         {clock(w.t)}
@@ -893,7 +881,6 @@ function UnplannedRow({ u, onEdit }) {
         style={{
           background: C.brass,
           border: `1px solid ${C.brass}`,
-          transform: `translateY(${u.note ? NOTE_NUDGE : 0}px)`,
         }}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
@@ -921,7 +908,6 @@ function UnplannedRow({ u, onEdit }) {
         style={{
           color: C.brass,
           fontFamily: FONT.mono,
-          transform: `translateY(${u.note ? NOTE_NUDGE : 0}px)`,
         }}
       >
         {clock(u.t)}
