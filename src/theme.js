@@ -2,6 +2,10 @@ export const C = {
   ground: "#10262B",
   surface: "#163339",
   surfaceHi: "#1D4048",
+  // `surface` carried over to the brass family: the same weight of fill for a
+  // row, warm instead of teal, so an unplanned snack reads as a peer of the
+  // meals above it and still says at a glance that it isn't one.
+  surfaceBrass: "#372F24",
   rail: "#2C545C",
   chalk: "#E9EFEA",
   muted: "#89AAA8",

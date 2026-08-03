@@ -10,8 +10,32 @@ const DEFAULTS = {
     { id: "s4", label: "Dinner" },
   ],
   trainingEnabled: true,
-  trainingLabel: "Training fuel",
 };
+
+// A workout snack isn't a slot you can re-cut — it's one fixed kind of entry,
+// like an unplanned one, so its label is a constant rather than a setting.
+const WORKOUT_LABEL = "Workout Snack";
+const SNACK_LABEL = "Snack";
+
+// The add buttons carry a 1px dashed edge; the bubbles beside them are filled
+// and have none. They match heights only if the fill keeps the border box the
+// edge would have occupied.
+//
+// Note the bubbles set no text size. `button, input { font: inherit }` in
+// index.css is unlayered, so it outranks Tailwind's layered utilities and every
+// button in the app renders at the inherited 16px whatever text-* it carries.
+// A bubble that asked for text-sm would be the one element on the row to get
+// it, and would come up short against the buttons it sits beside.
+const BUBBLE_EDGE = "1px solid transparent";
+
+// A row carrying a note is optically top-heavy even when it is geometrically
+// centred: the meal name is a serif line with no descenders sitting high in a
+// tall line box, and the note under it is a small line whose descenders hang
+// below its own. So the ink of the pair sits lower than the box the two share,
+// and a node centred on that box reads a few pixels high. This puts it back on
+// the middle the eye actually sees. It moves the time with it, so the two things
+// pinned to the row's edges stay level with each other.
+const NOTE_NUDGE = 3;
 
 // Two drinks fill one circle — Canada's 2023 guidance says not to exceed two on
 // any day, so a full circle is exactly the ceiling and one drink sits visibly
@@ -143,21 +167,20 @@ export default function MealRail() {
     setSaving(false);
   }, []);
 
-  const record = days[today] || { checks: {}, notes: {}, unplanned: [], training: false };
+  const record = days[today] || { checks: {}, notes: {}, unplanned: [], workouts: [] };
 
-  const slots = useMemo(() => {
-    const base = settings.slots;
-    if (settings.trainingEnabled && record.training) {
-      return [...base, { id: "__training", label: settings.trainingLabel }];
-    }
-    return base;
-  }, [settings, record.training]);
+  const slots = settings.slots;
 
+  // A workout snack arrives already checked, so it raises `planned` and the
+  // day's check count by one together: it can never cost the day a grade, and it
+  // can never cover for a meal that went unchecked.
   const writeDay = (patch) => {
     const next = { ...days, [today]: { ...record, ...patch } };
-    next[today].planned = (patch.training ?? record.training) && settings.trainingEnabled
-      ? settings.slots.length + 1
-      : settings.slots.length;
+    // `in` rather than a fallback: removing the last workout patches the key to
+    // undefined so it drops out of the JSON, and `??` would read that as "not
+    // being changed" and leave the day planning a slot that no longer exists.
+    const workouts = ("workouts" in patch ? patch.workouts : record.workouts) || [];
+    next[today].planned = settings.slots.length + workouts.length;
     setDays(next);
     persist(settings, next);
   };
@@ -200,29 +223,56 @@ export default function MealRail() {
       ),
     });
 
+  // Already checked the moment it is logged — a workout snack is recorded after
+  // the fact, not planned ahead of it, so there is nothing left to tick off.
+  // One a day: the list stays a list because that is what the rail and the
+  // migration already read, but only ever holds the one.
+  const addWorkout = () => {
+    if ((record.workouts || []).length) return;
+    writeDay({ workouts: [{ id: uid(), t: new Date().toISOString() }] });
+  };
+
+  const removeWorkout = (id) => {
+    const left = (record.workouts || []).filter((w) => w.id !== id);
+    writeDay({ workouts: left.length ? left : undefined });
+  };
+
+  const editWorkout = (id, { time, note }) =>
+    writeDay({
+      workouts: (record.workouts || []).map((w) =>
+        w.id === id ? { ...w, t: fromTimeField(today, time, w.t), note: note || undefined } : w
+      ),
+    });
+
   const addDrink = () => writeDay({ drinks: (record.drinks || 0) + 1 });
 
   // undefined rather than 0 so the key drops out of the JSON entirely and days
   // without drinks stay as small as they were before this existed.
   const setDrinkCount = (n) => writeDay({ drinks: n > 0 ? n : undefined });
 
-  const checkedCount = slots.filter((s) => record.checks[s.id]).length;
   const unplanned = record.unplanned || [];
+  const workouts = record.workouts || [];
   const drinks = record.drinks || 0;
 
-  // Place each unplanned mark after however many meals were already checked when it happened.
-  const unplannedAt = useMemo(() => {
+  // Place each off-slot entry after however many meals were already checked when
+  // it happened. Snacks and workouts share the rail, so they are positioned
+  // together and then ordered by clock within a position.
+  const extrasAt = useMemo(() => {
     const map = {};
-    unplanned.forEach((u) => {
+    [
+      ...unplanned.map((e) => ({ kind: "unplanned", e })),
+      ...workouts.map((e) => ({ kind: "workout", e })),
+    ].forEach((item) => {
       let pos = 0;
       slots.forEach((s) => {
         const t = record.checks[s.id];
-        if (t && t <= u.t) pos += 1;
+        if (t && t <= item.e.t) pos += 1;
       });
-      (map[pos] = map[pos] || []).push(u);
+      (map[pos] = map[pos] || []).push(item);
     });
+    Object.values(map).forEach((list) => list.sort((a, b) => a.e.t.localeCompare(b.e.t)));
     return map;
-  }, [unplanned, slots, record.checks]);
+  }, [unplanned, workouts, slots, record.checks]);
 
   const history = useMemo(() => {
     const out = [];
@@ -233,7 +283,8 @@ export default function MealRail() {
       const entry = {
         key: k,
         planned: r?.planned ?? settings.slots.length,
-        checks: r ? Object.keys(r.checks || {}).length : 0,
+        // Workouts are logged already checked, so they count on both sides.
+        checks: r ? Object.keys(r.checks || {}).length + (r.workouts || []).length : 0,
         extra: r ? (r.unplanned || []).length : 0,
         drinks: r?.drinks || 0,
         isToday,
@@ -266,9 +317,10 @@ export default function MealRail() {
       const t = record.checks[editing.id];
       return t ? { time: toTimeField(t), note: (record.notes || {})[editing.id] } : null;
     }
-    const u = unplanned.find((x) => x.id === editing.id);
-    return u ? { time: toTimeField(u.t), note: u.note } : null;
-  }, [editing, record, unplanned, drinks]);
+    const list = editing.kind === "workout" ? workouts : unplanned;
+    const e = list.find((x) => x.id === editing.id);
+    return e ? { time: toTimeField(e.t), note: e.note } : null;
+  }, [editing, record, unplanned, workouts, drinks]);
 
   if (!ready) {
     return (
@@ -319,22 +371,13 @@ export default function MealRail() {
           <button
             onClick={() => setPanel(!panel)}
             aria-expanded={panel}
-            className="mt-1 shrink-0 rounded-full px-3 py-1.5 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={{
-              background: panel ? C.surfaceHi : C.surface,
-              color: C.muted,
-              fontFamily: FONT.mono,
-            }}
+            aria-label={panel ? "Close settings" : "Settings"}
+            className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.surface }}
           >
-            {panel ? "Close" : "Settings"}
+            {panel ? <IconClose color={C.chalk} /> : <IconSliders color={C.muted} />}
           </button>
         </header>
-
-        <p className="mt-3 text-sm" style={{ color: C.muted, fontFamily: FONT.mono }}>
-          {checkedCount} of {slots.length} checked
-          {unplanned.length > 0 && ` · ${unplanned.length} unplanned`}
-          {drinks > 0 && ` · ${drinks} ${drinks === 1 ? "drink" : "drinks"}`}
-        </p>
 
         {/* Settings */}
         {panel && (
@@ -347,7 +390,7 @@ export default function MealRail() {
             </p>
 
             <label className="mt-3 flex items-center justify-between gap-3 text-sm">
-              <span>Offer a training-day slot</span>
+              <span>Offer a workout snack</span>
               <button
                 onClick={() => writeSettings({ ...settings, trainingEnabled: !settings.trainingEnabled })}
                 role="switch"
@@ -442,25 +485,6 @@ export default function MealRail() {
 
         {/* The rail */}
         <section className="relative mt-6">
-          {settings.trainingEnabled && (
-            <button
-              onClick={() => {
-                const checks = { ...record.checks };
-                if (record.training) delete checks["__training"];
-                writeDay({ training: !record.training, checks });
-              }}
-              className="mb-4 rounded-full px-3 py-1.5 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{
-                background: record.training ? C.surfaceHi : "transparent",
-                color: record.training ? C.chalk : C.muted,
-                border: `1px solid ${record.training ? C.done : C.rail}`,
-                fontFamily: FONT.mono,
-              }}
-            >
-              {record.training ? "Training day" : "Mark as a training day"}
-            </button>
-          )}
-
           <div className="relative">
             {/* vertical line */}
             <div
@@ -470,14 +494,15 @@ export default function MealRail() {
             />
 
             <ul className="flex flex-col gap-1">
-              {(unplannedAt[0] || []).map((u) => (
-                <UnplannedRow key={u.id} u={u} onEdit={setEditing} />
-              ))}
+              <ExtraRows items={extrasAt[0]} onEdit={setEditing} />
               {slots.map((s, i) => {
                 const t = record.checks[s.id];
                 const note = (record.notes || {})[s.id];
                 return (
-                  <li key={s.id}>
+                  // The extras that follow a meal live inside its <li>, so the
+                  // list's own gap can't reach them — it repeats here, and every
+                  // row on the rail ends up the same distance apart.
+                  <li key={s.id} className="flex flex-col gap-1">
                     <button
                       // A checked row opens the editor rather than clearing
                       // itself — undoing a meal shouldn't be one stray tap away.
@@ -494,7 +519,7 @@ export default function MealRail() {
                         style={{
                           background: t ? C.done : C.ground,
                           border: `1px solid ${t ? C.done : C.rail}`,
-                          transform: t ? "scale(1)" : "scale(0.82)",
+                          transform: `translateY(${note ? NOTE_NUDGE : 0}px) ${t ? "scale(1)" : "scale(0.82)"}`,
                         }}
                       >
                         {t && (
@@ -526,44 +551,64 @@ export default function MealRail() {
                           </span>
                         )}
                       </span>
-                      <span className="text-xs" style={{ color: t ? C.done : C.rail, fontFamily: FONT.mono }}>
+                      <span
+                        className="text-xs"
+                        style={{
+                          color: t ? C.done : C.rail,
+                          fontFamily: FONT.mono,
+                          transform: `translateY(${note ? NOTE_NUDGE : 0}px)`,
+                        }}
+                      >
                         {t ? clock(t) : "—"}
                       </span>
                     </button>
 
-                    {(unplannedAt[i + 1] || []).map((u) => (
-                      <UnplannedRow key={u.id} u={u} onEdit={setEditing} />
-                    ))}
+                    <ExtraRows items={extrasAt[i + 1]} onEdit={setEditing} />
                   </li>
                 );
               })}
             </ul>
           </div>
 
-          <button
-            onClick={addUnplanned}
-            className="mt-4 ml-1 rounded-full px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={{ background: "transparent", color: C.brass, border: `1px dashed ${C.brass}` }}
-          >
-            Log something unplanned
-          </button>
+          {/* The two things a day picks up off-plan, side by side and equally
+              weighted — the rail above is what was planned, this row is what
+              wasn't. Neither is wide enough for a sentence, hence the glyph.
+              No left inset: the row spans the full width, so anything on one
+              side only would take its seam off the centre line and out of step
+              with the drinks row below. */}
+          <div className="mt-4 flex items-stretch gap-2">
+            <AddButton onClick={addUnplanned} color={C.brass} label={SNACK_LABEL} />
+            {settings.trainingEnabled && (
+              <AddButton
+                onClick={addWorkout}
+                color={C.done}
+                label={WORKOUT_LABEL}
+                done={workouts.length > 0}
+              />
+            )}
+          </div>
 
           {/* Tapping the pill only ever adds. The count beside it is the one way
-              down again, so a stray tap can't undo a night's worth of counting. */}
-          <div className="mt-3 ml-1 flex items-center gap-2">
-            <button
-              onClick={addDrink}
-              className="rounded-full px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: "transparent", color: C.red, border: `1px dashed ${C.red}` }}
-            >
-              Log a drink
-            </button>
-            {drinks > 0 && (
+              down again, so a stray tap can't undo a night's worth of counting.
+
+              Two half-width tracks that meet in the middle, the near one packed
+              right and the far one packed left. Centring the pair instead would
+              put the seam wherever the count's width happened to leave it; this
+              way the gap lands on the centre line and stays there as the count
+              grows, in the same place as the gap in the row above. */}
+          <div className="mt-3 flex items-center gap-2">
+            <div className="flex flex-1 justify-end">
+              {/* Sized rather than grown: filling its half would leave the seam
+                  correct but the button far wider than the count beside it. */}
+              <AddButton onClick={addDrink} color={C.red} label="Drink" grow={false} width="9.5rem" />
+            </div>
+            <div className="flex flex-1 justify-start">
+            {drinks > 0 ? (
               <button
                 onClick={() => setEditing({ kind: "drinks", id: "drinks", label: "Drinks" })}
                 aria-label={`Edit drinks — ${drinks} logged`}
                 className="flex items-center gap-2 rounded-full px-3 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{ background: C.surface }}
+                style={{ background: C.surface, border: BUBBLE_EDGE }}
               >
                 <span className="flex items-center gap-[3px]" aria-hidden="true">
                   {drinkCircles(drinks)
@@ -572,11 +617,39 @@ export default function MealRail() {
                       <DrinkDot key={i} size={10} fill={fill} />
                     ))}
                 </span>
-                <span className="text-sm" style={{ color: C.chalk, fontFamily: FONT.mono }}>
-                  {drinks}
-                </span>
+                <span style={{ color: C.chalk, fontFamily: FONT.mono }}>{drinks}</span>
               </button>
+            ) : (
+              // Not a control — there is nothing to edit about none — so it is a
+              // plain bubble holding the standing answer to what the button asks.
+              <span
+                role="img"
+                aria-label="No drinks logged today"
+                className="flex items-center gap-2 rounded-full px-3 py-2"
+                style={{ background: C.surface, border: BUBBLE_EDGE }}
+              >
+                <span
+                  className="flex h-4 w-4 items-center justify-center rounded-full"
+                  style={{ background: C.done }}
+                  aria-hidden="true"
+                >
+                  <svg width="10" height="10" viewBox="0 0 12 12">
+                    <path
+                      d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
+                      fill="none"
+                      stroke={C.ground}
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span aria-hidden="true" style={{ color: C.chalk, fontFamily: FONT.mono }}>
+                  None
+                </span>
+              </span>
             )}
+            </div>
           </div>
         </section>
 
@@ -680,11 +753,13 @@ export default function MealRail() {
           onClose={() => setEditing(null)}
           onSave={(patch) => {
             if (editing.kind === "slot") editCheck(editing.id, patch);
+            else if (editing.kind === "workout") editWorkout(editing.id, patch);
             else editUnplanned(editing.id, patch);
             setEditing(null);
           }}
           onRemove={() => {
             if (editing.kind === "slot") uncheck(editing.id);
+            else if (editing.kind === "workout") removeWorkout(editing.id);
             else removeUnplanned(editing.id);
             setEditing(null);
           }}
@@ -694,23 +769,148 @@ export default function MealRail() {
   );
 }
 
+// The dashed outline is the shared shape of "add something to today"; the colour
+// is the only thing that says which something, and it matches the mark the entry
+// leaves on the rail.
+// `done` is for the one-a-day button once the day has had its one: the slot
+// keeps its width so the row doesn't reflow, and dims to the rail colour with a
+// tick in place of the plus rather than disappearing.
+function AddButton({ onClick, color, label, grow = true, width, done = false }) {
+  const tone = done ? C.rail : color;
+  return (
+    <button
+      onClick={onClick}
+      disabled={done}
+      className={`flex ${grow ? "flex-1" : ""} items-center justify-center gap-2 rounded-full px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
+      style={{ background: "transparent", color: tone, border: `1px dashed ${tone}`, width }}
+    >
+      {done ? <IconTick color={tone} /> : <IconPlus color={tone} />}
+      {label}
+    </button>
+  );
+}
+
+function IconPlus({ color }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M7 1.5v11M1.5 7h11" stroke={color} strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconTick({ color }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path
+        d="M2 7.5 L5.5 11 L12 3.5"
+        stroke={color}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// Snacks and workouts both sit between the meals rather than among them, so they
+// are drawn from one list and keep the rail in clock order.
+function ExtraRows({ items, onEdit }) {
+  return (items || []).map(({ kind, e }) =>
+    kind === "workout" ? (
+      <WorkoutRow key={e.id} w={e} onEdit={onEdit} />
+    ) : (
+      <UnplannedRow key={e.id} u={e} onEdit={onEdit} />
+    )
+  );
+}
+
+// Drawn as a checked meal, because that is what it is: a slot the day earned and
+// filled in the same motion. The only tell is that it can be removed rather than
+// unchecked.
+function WorkoutRow({ w, onEdit }) {
+  return (
+    <button
+      onClick={() => onEdit({ kind: "workout", id: w.id, label: WORKOUT_LABEL })}
+      aria-label={`Edit this ${WORKOUT_LABEL.toLowerCase()}`}
+      className="row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      style={{ background: C.surface }}
+    >
+      <span
+        className="node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+        style={{
+          background: C.done,
+          border: `1px solid ${C.done}`,
+          transform: `translateY(${w.note ? NOTE_NUDGE : 0}px)`,
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path
+            d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
+            fill="none"
+            stroke={C.ground}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-lg" style={{ fontFamily: FONT.display, color: C.chalk }}>
+          {WORKOUT_LABEL}
+        </span>
+        {w.note && (
+          <span className="block truncate text-xs" style={{ color: C.muted }}>
+            {w.note}
+          </span>
+        )}
+      </span>
+      <span
+        className="text-xs"
+        style={{
+          color: C.done,
+          fontFamily: FONT.mono,
+          transform: `translateY(${w.note ? NOTE_NUDGE : 0}px)`,
+        }}
+      >
+        {clock(w.t)}
+      </span>
+    </button>
+  );
+}
+
+// Built to the same pattern as a meal row — filled node, fill behind it, one
+// label and a time — and left to colour alone to say it wasn't on the plan. The
+// glyph is a bar rather than a tick because a snack isn't an achievement; it's
+// the neutral mark between the meals that earn one and the drinks that cost one.
 function UnplannedRow({ u, onEdit }) {
   return (
     <button
-      onClick={() => onEdit({ kind: "unplanned", id: u.id, label: "Unplanned" })}
-      aria-label="Edit this unplanned entry"
-      className="row flex w-full items-center gap-4 rounded-xl py-1.5 pl-2 pr-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      onClick={() => onEdit({ kind: "unplanned", id: u.id, label: SNACK_LABEL })}
+      aria-label={`Edit this ${SNACK_LABEL.toLowerCase()}`}
+      className="row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      style={{ background: C.surfaceBrass }}
     >
-      <span className="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center">
-        <span
-          className="block h-[7px] w-[7px] rotate-45"
-          style={{ background: C.brass }}
-          aria-hidden="true"
-        />
+      <span
+        className="node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+        style={{
+          background: C.brass,
+          border: `1px solid ${C.brass}`,
+          transform: `translateY(${u.note ? NOTE_NUDGE : 0}px)`,
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path
+            d="M3 6 L9 6"
+            fill="none"
+            stroke={C.ground}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+        </svg>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm" style={{ color: C.brass }}>
-          Unplanned
+        <span className="block text-lg" style={{ fontFamily: FONT.display, color: C.brass }}>
+          {SNACK_LABEL}
         </span>
         {u.note && (
           <span className="block truncate text-xs" style={{ color: C.muted }}>
@@ -718,10 +918,38 @@ function UnplannedRow({ u, onEdit }) {
           </span>
         )}
       </span>
-      <span className="text-xs" style={{ color: C.brass, fontFamily: FONT.mono }}>
+      <span
+        className="text-xs"
+        style={{
+          color: C.brass,
+          fontFamily: FONT.mono,
+          transform: `translateY(${u.note ? NOTE_NUDGE : 0}px)`,
+        }}
+      >
         {clock(u.t)}
       </span>
     </button>
+  );
+}
+
+// The settings button's two faces. The pill keeps one background across both
+// states — only the glyph changes, so the button doesn't flash when the panel
+// opens under it.
+function IconSliders({ color }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 7h12.4M3 17h5.4M13.6 17H21" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="18" cy="7" r="2.6" stroke={color} strokeWidth="1.7" fill="none" />
+      <circle cx="11" cy="17" r="2.6" stroke={color} strokeWidth="1.7" fill="none" />
+    </svg>
+  );
+}
+
+function IconClose({ color }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
   );
 }
 

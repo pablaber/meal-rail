@@ -4,10 +4,53 @@
 
 const KEY = "mealrail:v1";
 
+// A training day used to be a flag that appended one more slot to the day, which
+// you then checked off yourself. It is now a workout snack: an entry that
+// arrives already checked, like the unplanned list beside it. Old days and old
+// backup files are rewritten into that shape on the way in, so the key can stay
+// at v1 and nothing in the app has to know the flag ever existed.
+//
+// A training day that was checked becomes a workout at the same time, leaving
+// the day's `planned` and its grade exactly where they were. A training day that
+// was never checked becomes nothing — the new model has no way to say "meant to
+// work out and didn't" — so its `planned` gives the slot back. That day can go
+// from green to gold, which is the honest reading: every slot it actually had is
+// accounted for.
+function migrateDay(r) {
+  if (!r || !r.training) return r;
+  const { training, ...day } = r;
+  const checks = { ...(day.checks || {}) };
+  const notes = { ...(day.notes || {}) };
+  const t = checks["__training"];
+  delete checks["__training"];
+  const note = notes["__training"];
+  delete notes["__training"];
+
+  day.checks = checks;
+  if (Object.keys(notes).length) day.notes = notes;
+  else delete day.notes;
+
+  if (t) {
+    day.workouts = [...(day.workouts || []), { id: `w${t}`, t, note: note || undefined }];
+  } else if (typeof day.planned === "number") {
+    day.planned = Math.max(0, day.planned - 1);
+  }
+  return day;
+}
+
+function migrate(state) {
+  if (!state || typeof state !== "object" || !state.days) return state;
+  const days = {};
+  Object.keys(state.days).forEach((k) => {
+    days[k] = migrateDay(state.days[k]);
+  });
+  return { ...state, days };
+}
+
 export async function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? migrate(JSON.parse(raw)) : null;
   } catch {
     return null;
   }
@@ -81,7 +124,8 @@ export function importFile() {
         if (!parsed || typeof parsed !== "object" || !parsed.days) {
           return reject(new Error("That file isn't a Meal Rail backup"));
         }
-        resolve(parsed);
+        // A restored backup skips load(), so it gets the same migration here.
+        resolve(migrate(parsed));
       } catch {
         reject(new Error("That file isn't valid JSON"));
       }

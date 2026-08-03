@@ -46,14 +46,14 @@ One JSON blob under the `mealrail:v1` key:
 
 ```js
 {
-  settings: { slots: [{ id, label }], trainingEnabled, trainingLabel },
+  settings: { slots: [{ id, label }], trainingEnabled },
   days: {
     "YYYY-MM-DD": {
       checks: { [slotId]: isoTimestamp },
       notes: { [slotId]: string },   // optional, absent on days with no notes
       unplanned: [{ id, t, note }],  // note optional
+      workouts: [{ id, t, note }],   // optional, absent on days with no workouts
       drinks: number,                // optional, absent on days with no drinks
-      training,
       planned,
     },
   },
@@ -67,6 +67,28 @@ an object, so a backup taken before notes existed still loads unchanged; read
 them as `(record.notes || {})[id]`. `drinks` is the same deal — read it as
 `record.drinks || 0`, and write `undefined` rather than `0` so the key drops out
 of days where nothing was logged.
+
+A workout snack is logged already checked, so it lands in `workouts` and lifts
+both `planned` and the day's check count by one. It can never cost the day a
+grade and can never cover for a meal that went unchecked — the strip just grows
+one more filled box. Everything else the day picks up off-plan (`unplanned`,
+`drinks`) is a negative; this is the one that isn't, which is why it draws as a
+meal row rather than a mark beside one.
+
+One a day. `workouts` stays an array because the rail, the migration, and the
+grade all read it as one, but `addWorkout` refuses a second and the button dims
+to a tick once the day has had its one. Removing it drops the key entirely, the
+way `drinks` does — which is why `writeDay` tests `"workouts" in patch` rather
+than falling back with `??`, or the day would keep planning a slot that no
+longer exists.
+
+`training: true` — the old flag that appended a self-checked slot — no longer
+exists. `migrateDay` in `storage.js` rewrites it on the way in, for both `load()`
+and a restored backup: a checked training day becomes a workout at the same time
+and keeps the day's grade exactly; an unchecked one becomes nothing and gives its
+slot back to `planned`, which can move that day green → gold. That is deliberate
+— the new model has no way to say "meant to work out and didn't". Don't drop the
+migration; backups predating it are still out there.
 
 `DRINKS_PER_CIRCLE` in `App.jsx` is 2: each drink fills half a red circle, so a
 full circle is exactly Canada's per-day ceiling and one drink sits visibly half
