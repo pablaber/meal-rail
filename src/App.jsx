@@ -620,8 +620,12 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center"
-      style={{ background: C.scrim }}
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{
+        background: C.scrim,
+        paddingTop: "calc(env(safe-area-inset-top) + 1rem)",
+        paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)",
+      }}
     >
       <div
         role="dialog"
@@ -633,7 +637,6 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
           background: C.surface,
           color: C.chalk,
           fontFamily: FONT.body,
-          marginBottom: "env(safe-area-inset-bottom)",
         }}
       >
         <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
@@ -649,8 +652,8 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
             type="time"
             value={draftTime}
             onChange={(e) => setDraftTime(e.target.value)}
-            className={field}
-            style={fieldStyle}
+            className={`${field} block min-w-0 max-w-full`}
+            style={{ ...fieldStyle, boxSizing: "border-box" }}
           />
         </label>
 
