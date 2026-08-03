@@ -7,7 +7,6 @@ const DEFAULTS = {
   slots: [
     { id: "s1", label: "Breakfast" },
     { id: "s2", label: "Lunch" },
-    { id: "s3", label: "Snack" },
     { id: "s4", label: "Dinner" },
   ],
   trainingEnabled: true,
@@ -65,7 +64,7 @@ export default function MealRail() {
     (async () => {
       const parsed = await load();
       if (alive && parsed) {
-        setSettings({ ...DEFAULTS, ...(parsed.settings || {}) });
+        setSettings({ ...DEFAULTS, ...(parsed.settings || {}), slots: DEFAULTS.slots });
         setDays(parsed.days || {});
       }
       if (alive) setReady(true);
@@ -321,7 +320,11 @@ export default function MealRail() {
                 onClick={async () => {
                   try {
                     const parsed = await importFile();
-                    const nextSettings = { ...DEFAULTS, ...(parsed.settings || {}) };
+                    const nextSettings = {
+                      ...DEFAULTS,
+                      ...(parsed.settings || {}),
+                      slots: DEFAULTS.slots,
+                    };
                     setSettings(nextSettings);
                     setDays(parsed.days || {});
                     persist(nextSettings, parsed.days || {});
