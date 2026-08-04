@@ -119,6 +119,16 @@ const shiftDay = (key, delta) => {
   return dayKey(dt);
 };
 
+const formatDate = (key) => {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
 const clock = (iso) =>
   new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
@@ -155,8 +165,9 @@ export default function MealRail() {
   // comes back to the same screen.
   const [view, setView] = useState(() => {
     const v = window.history.state?.view;
-    return v === "settings" || v === "calendar" ? v : "today";
+    return v === "settings" || v === "calendar" || v === "day" ? v : "today";
   });
+  const [selectedDay, setSelectedDay] = useState(() => window.history.state?.day || null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   // The month the calendar is showing, as a plain year/month pair rather than
@@ -195,6 +206,13 @@ export default function MealRail() {
     setView("calendar");
   };
 
+  const openPastDay = (key) => {
+    if (key >= today) return;
+    setSelectedDay(key);
+    window.history.pushState({ view: "day", day: key }, "");
+    setView("day");
+  };
+
   // The in-app back button walks history rather than setting state directly, so
   // it leaves exactly what the device's back button leaves — nothing stale
   // behind it. Settings and the calendar both close the same way.
@@ -203,17 +221,18 @@ export default function MealRail() {
   useEffect(() => {
     const onPop = (e) => {
       const v = e.state?.view;
-      setView(v === "settings" || v === "calendar" ? v : "today");
+      setSelectedDay(v === "day" ? e.state?.day || null : null);
+      setView(v === "settings" || v === "calendar" || v === "day" ? v : "today");
       setConfirmClearOpen(false);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // Escape leaves settings or the calendar, the way it leaves a dialog.
-  // Nothing to conflict with: both are only reachable from the day view.
+  // Escape leaves settings, the calendar, or a past day, the way it leaves a
+  // dialog. A past day returns to the calendar that opened it.
   useEffect(() => {
-    if (view !== "settings" && view !== "calendar") return;
+    if (view !== "settings" && view !== "calendar" && view !== "day") return;
     const onKey = (e) => {
       if (e.key === "Escape") goBack();
     };
@@ -391,6 +410,11 @@ export default function MealRail() {
       }),
     [calendarMonth]
   );
+
+  const selectedDayRecord = selectedDay ? days[selectedDay] : null;
+  const selectedDaySummary = selectedDay
+    ? daySummary(days, selectedDay, settings.slots.length, false)
+    : null;
 
   const weekExtras = history.slice(7).reduce((a, d) => a + d.extra, 0);
   const weekDrinks = history.slice(7).reduce((a, d) => a + d.drinks, 0);
@@ -620,7 +644,19 @@ export default function MealRail() {
             {calendarCells.map((cell, i) =>
               cell ? (
                 <div key={cell.key} className="flex justify-center">
-                  <CalendarDay day={cell.day} tier={cell.badge} isToday={cell.isToday} />
+                  {cell.key < today ? (
+                    <button
+                      onClick={() => openPastDay(cell.key)}
+                      aria-label={`Open ${formatDate(cell.key)}${
+                        cell.badge ? `, ${BADGE_LABEL[cell.badge]}` : ", no grade"
+                      }`}
+                      className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    >
+                      <CalendarDay day={cell.day} tier={cell.badge} />
+                    </button>
+                  ) : (
+                    <CalendarDay day={cell.day} tier={cell.badge} isToday={cell.isToday} />
+                  )}
                 </div>
               ) : (
                 <div key={`blank-${i}`} aria-hidden="true" />
@@ -629,6 +665,18 @@ export default function MealRail() {
           </div>
         </section>
       </Screen>
+    );
+  }
+
+  if (view === "day" && selectedDay && selectedDay < today) {
+    return (
+      <PastDay
+        dateKey={selectedDay}
+        record={selectedDayRecord}
+        slots={slots}
+        summary={selectedDaySummary}
+        onBack={goBack}
+      />
     );
   }
 
@@ -998,6 +1046,181 @@ function ExtraRows({ items, onEdit }) {
   );
 }
 
+function PastDay({ dateKey, record, slots, summary, onBack }) {
+  const checks = record?.checks || {};
+  const notes = record?.notes || {};
+  const snacks = record?.unplanned || [];
+  const workouts = record?.workouts || [];
+  const drinks = record?.drinks || 0;
+  const grade = summary?.badge;
+
+  return (
+    <Screen>
+      <header className="flex items-start gap-3">
+        <button
+          onClick={onBack}
+          aria-label="Back to calendar"
+          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: C.surface }}
+        >
+          <IconBack color={C.chalk} />
+        </button>
+        <div>
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            Past day
+          </p>
+          <h1 className="mt-1 text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+            {formatDate(dateKey)}
+          </h1>
+        </div>
+      </header>
+
+      <section
+        className="mt-6 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+        style={{ background: C.surface }}
+        aria-label={`Grade: ${grade ? BADGE_LABEL[grade] : "No grade"}`}
+      >
+        <div>
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            Grade
+          </p>
+          <p className="mt-1 text-lg" style={{ fontFamily: FONT.display }}>
+            {grade ? BADGE_LABEL[grade] : "No grade"}
+          </p>
+        </div>
+        {grade && <DayBadge tier={grade} size={22} />}
+      </section>
+
+      <PastDaySection title="Meals">
+        <div className="flex flex-col gap-2">
+          {slots.map((slot) => (
+            <PastEntry
+              key={slot.id}
+              label={slot.label}
+              time={checks[slot.id]}
+              note={notes[slot.id]}
+              tone={checks[slot.id] ? C.done : C.rail}
+              checked={!!checks[slot.id]}
+            />
+          ))}
+        </div>
+      </PastDaySection>
+
+      <PastDaySection title="Snacks">
+        {snacks.length ? (
+          <div className="flex flex-col gap-2">
+            {snacks.map((snack) => (
+              <PastEntry
+                key={snack.id}
+                label={SNACK_LABEL}
+                time={snack.t}
+                note={snack.note}
+                tone={C.brass}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyPastEntry label="No snacks logged" />
+        )}
+      </PastDaySection>
+
+      <PastDaySection title="Workout">
+        {workouts.length ? (
+          <div className="flex flex-col gap-2">
+            {workouts.map((workout) => (
+              <PastEntry
+                key={workout.id}
+                label={WORKOUT_LABEL}
+                time={workout.t}
+                note={workout.note}
+                tone={C.done}
+                checked
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyPastEntry label="No workout snack logged" />
+        )}
+      </PastDaySection>
+
+      <PastDaySection title="Drinks">
+        <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: C.surface }}>
+          <span style={{ color: drinks ? C.chalk : C.muted }}>
+            {drinks} {drinks === 1 ? "drink" : "drinks"}
+          </span>
+          {drinks > 0 && (
+            <span className="flex items-center gap-[3px]" aria-hidden="true">
+              {drinkCircles(drinks)
+                .slice(0, DRINK_DOTS_MAX)
+                .map((fill, i) => (
+                  <DrinkDot key={i} size={10} fill={fill} />
+                ))}
+            </span>
+          )}
+        </div>
+      </PastDaySection>
+    </Screen>
+  );
+}
+
+function PastDaySection({ title, children }) {
+  return (
+    <section className="mt-6">
+      <h2
+        className="mb-3 text-xs uppercase tracking-widest"
+        style={{ color: C.muted, fontFamily: FONT.mono }}
+      >
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+function PastEntry({ label, time, note, tone, checked = false }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: C.surface }}>
+      <span
+        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+        style={{ background: checked ? tone : "transparent", border: `1px solid ${tone}` }}
+        aria-hidden="true"
+      >
+        {checked && <IconTick color={C.ground} />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block" style={{ color: time ? C.chalk : C.muted }}>
+          {label}
+        </span>
+        {note && (
+          <span className="mt-1 block text-sm whitespace-pre-wrap" style={{ color: C.muted }}>
+            {note}
+          </span>
+        )}
+      </span>
+      <span
+        className="self-center shrink-0 text-xs"
+        style={{ color: time ? tone : C.rail, fontFamily: FONT.mono }}
+      >
+        {time ? clock(time) : "—"}
+      </span>
+    </div>
+  );
+}
+
+function EmptyPastEntry({ label }) {
+  return (
+    <p className="rounded-xl px-4 py-3 text-sm" style={{ background: C.surface, color: C.muted }}>
+      {label}
+    </p>
+  );
+}
+
 // Drawn as a checked meal, because that is what it is: a slot the day earned and
 // filled in the same motion. The only tell is that it can be removed rather than
 // unchecked.
@@ -1228,32 +1451,32 @@ function IconChevronRight({ color }) {
 // a lit disc, then a plain one, then an empty ring, then a ring in pieces —
 // because at eleven pixels colour alone can't hold five tiers apart. It is the
 // only glyph in a strip column that isn't decorative, so it gets a name.
-function DayBadge({ tier }) {
+function DayBadge({ tier, size = BADGE_SIZE }) {
   const label = BADGE_LABEL[tier];
 
   if (tier === "terrible") {
     // Three arcs and three gaps: the ring, come apart.
-    const w = BADGE_SIZE / 4;
-    const r = (BADGE_SIZE - w) / 2;
+    const w = size / 4;
+    const r = (size - w) / 2;
     const seg = (2 * Math.PI * r) / 3;
     return (
       <svg
-        width={BADGE_SIZE}
-        height={BADGE_SIZE}
+        width={size}
+        height={size}
         className="block"
         role="img"
         aria-label={label}
       >
         <title>{label}</title>
         <circle
-          cx={BADGE_SIZE / 2}
-          cy={BADGE_SIZE / 2}
+          cx={size / 2}
+          cy={size / 2}
           r={r}
           fill="none"
           stroke={C.redDeep}
           strokeWidth={w}
           strokeDasharray={`${(seg * 2) / 3} ${seg / 3}`}
-          transform={`rotate(-90 ${BADGE_SIZE / 2} ${BADGE_SIZE / 2})`}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </svg>
     );
@@ -1262,11 +1485,11 @@ function DayBadge({ tier }) {
   const styles = {
     gold: {
       background: C.gold,
-      boxShadow: `0 0 ${BADGE_SIZE / 2}px ${C.goldGlow}, inset 0 1px 0 ${C.sheen}`,
+      boxShadow: `0 0 ${size / 2}px ${C.goldGlow}, inset 0 1px 0 ${C.sheen}`,
     },
     green: { background: C.done },
     silver: { background: C.silver },
-    bad: { border: `${BADGE_SIZE / 6}px solid ${C.red}` },
+    bad: { border: `${size / 6}px solid ${C.red}` },
     empty: { border: `1px solid ${C.rail}`, opacity: 0.7 },
   };
 
@@ -1277,8 +1500,8 @@ function DayBadge({ tier }) {
       aria-label={label}
       title={label}
       style={{
-        width: BADGE_SIZE,
-        height: BADGE_SIZE,
+        width: size,
+        height: size,
         borderRadius: "50%",
         ...styles[tier],
       }}

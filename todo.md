@@ -17,8 +17,6 @@
 
 ## Priority: core experience
 
-- [ ] Let users open a past day from the calendar to see its meals, snacks,
-  workout, drinks, notes, and grade.
 - [ ] Allow past-day corrections and backfilling, with a prominent indication of
   which date is being edited.
 - [ ] Add a temporary Undo action after checking a meal or adding a snack,
