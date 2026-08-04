@@ -541,7 +541,7 @@ export default function MealRail() {
                         )}
                       </span>
                       <span
-                        className="text-xs"
+                        className={`text-xs${t ? " pr-1" : ""}`}
                         style={{
                           color: t ? C.done : C.rail,
                           fontFamily: FONT.mono,
@@ -852,7 +852,7 @@ function WorkoutRow({ w, onEdit }) {
         )}
       </span>
       <span
-        className="text-xs"
+        className="pr-1 text-xs"
         style={{
           color: C.done,
           fontFamily: FONT.mono,
