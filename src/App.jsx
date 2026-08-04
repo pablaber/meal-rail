@@ -74,6 +74,22 @@ const BADGE_LABEL = {
 
 const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const CALENDAR_DAY_SIZE = 34;
+
+// On the calendar the grade and the date are the same mark: the number sits in
+// the disc. The strip's shape language doesn't survive being blown up to hold a
+// numeral — a broken ring or a hollow one just reads as a badly drawn circle at
+// this size — so every tier here is a plain fill and colour alone carries it.
+// The ink flips with the fill so the number stays legible on either.
+const CALENDAR_TIER = {
+  gold: { background: C.gold, color: C.ground, glow: true },
+  green: { background: C.done, color: C.ground },
+  silver: { background: C.silver, color: C.ground },
+  bad: { background: C.red, color: C.ground },
+  terrible: { background: C.redDeep, color: C.chalk },
+  empty: { background: C.rail, color: C.chalk },
+};
+
 const dayKey = (d = new Date()) => {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -592,11 +608,11 @@ export default function MealRail() {
             </button>
           </div>
 
-          <div className="mt-6 grid grid-cols-7 gap-y-3">
+          <div className="mt-6 grid grid-cols-7 gap-y-2">
             {CALENDAR_WEEKDAYS.map((w) => (
               <span
                 key={w}
-                className="text-center text-[10px] uppercase tracking-widest"
+                className="mb-1 text-center text-[10px] uppercase tracking-widest"
                 style={{ color: C.muted, fontFamily: FONT.mono }}
               >
                 {w}
@@ -604,16 +620,8 @@ export default function MealRail() {
             ))}
             {calendarCells.map((cell, i) =>
               cell ? (
-                <div key={cell.key} className="flex flex-col items-center gap-1">
-                  <div className="flex h-[11px] items-center justify-center">
-                    {cell.badge && <DayBadge tier={cell.badge} />}
-                  </div>
-                  <span
-                    className="text-sm"
-                    style={{ color: cell.isToday ? C.chalk : C.muted, fontFamily: FONT.mono }}
-                  >
-                    {cell.day}
-                  </span>
+                <div key={cell.key} className="flex justify-center">
+                  <CalendarDay day={cell.day} tier={cell.badge} isToday={cell.isToday} />
                 </div>
               ) : (
                 <div key={`blank-${i}`} aria-hidden="true" />
@@ -1276,6 +1284,36 @@ function DayBadge({ tier }) {
         ...styles[tier],
       }}
     />
+  );
+}
+
+// The calendar's version of the same verdict: the day's number inside its own
+// grade. A day with nothing to say is bare, and today gets a ring instead of a
+// fill — it hasn't been graded yet, so it can't wear a colour.
+function CalendarDay({ day, tier, isToday }) {
+  const style = tier ? CALENDAR_TIER[tier] : null;
+  const label = tier ? BADGE_LABEL[tier] : null;
+
+  return (
+    <span
+      className="flex items-center justify-center rounded-full text-sm"
+      role={label ? "img" : undefined}
+      aria-label={label ? `${day}: ${label}` : undefined}
+      title={label || undefined}
+      style={{
+        width: CALENDAR_DAY_SIZE,
+        height: CALENDAR_DAY_SIZE,
+        fontFamily: FONT.mono,
+        background: style?.background || "transparent",
+        color: style?.color || (isToday ? C.chalk : C.muted),
+        boxShadow: style?.glow
+          ? `0 0 ${CALENDAR_DAY_SIZE / 3}px ${C.goldGlow}, inset 0 1px 0 ${C.sheen}`
+          : undefined,
+        border: isToday ? `1px solid ${C.muted}` : undefined,
+      }}
+    >
+      {day}
+    </span>
   );
 }
 
