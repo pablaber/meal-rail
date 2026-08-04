@@ -1,5 +1,7 @@
 # TODO
 
+<!-- Remove completed items from these lists as part of the work effort. -->
+
 ## Priority: data safety and correctness
 
 - [ ] Make backup restoration safer:
@@ -8,9 +10,6 @@
   - Confirm before replacing current data.
   - Do not report success until the restored data has been saved successfully.
   - Consider supporting both replace and merge operations.
-- [ ] Make the `settings.slots` contract consistent. Loading and restoring currently
-  force slots back to `DEFAULTS.slots`, even though slots are part of the saved and
-  exported settings format.
 - [ ] Handle a failed history deletion instead of reporting "History erased" when
   storage removal did not succeed.
 - [ ] Distinguish corrupt stored data from a new installation and offer a recovery
