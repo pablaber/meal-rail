@@ -119,7 +119,7 @@ export default function MealRail() {
   const [view, setView] = useState(() =>
     window.history.state?.view === "settings" ? "settings" : "today"
   );
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
   // Load
@@ -151,7 +151,7 @@ export default function MealRail() {
   useEffect(() => {
     const onPop = (e) => {
       setView(e.state?.view === "settings" ? "settings" : "today");
-      setConfirmClear(false);
+      setConfirmClearOpen(false);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -359,7 +359,24 @@ export default function MealRail() {
 
   if (view === "settings") {
     return (
-      <Screen>
+      <Screen
+        overlay={
+          confirmClearOpen && (
+            <ConfirmDialog
+              title="Erase all history"
+              message="This permanently deletes every logged day. It can't be undone."
+              confirmLabel="Erase everything"
+              onClose={() => setConfirmClearOpen(false)}
+              onConfirm={async () => {
+                setDays({});
+                await clear();
+                setConfirmClearOpen(false);
+                setNotice("History erased");
+              }}
+            />
+          )
+        }
+      >
         <header className="flex items-start gap-3">
           <button
             onClick={closeSettings}
@@ -431,26 +448,14 @@ export default function MealRail() {
             >
               Restore a backup
             </button>
-            <button
-              onClick={async () => {
-                if (!confirmClear) return setConfirmClear(true);
-                setDays({});
-                await clear();
-                setConfirmClear(false);
-                setNotice("History erased");
-              }}
-              onBlur={() => setConfirmClear(false)}
-              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: "transparent", color: confirmClear ? C.brass : C.muted }}
-            >
-              {confirmClear ? "Tap again to erase" : "Erase all history"}
-            </button>
           </div>
 
         </section>
 
         {/* What the app says about itself, at the foot of the screen: which
-            build this is, and the status line the day view carries too. */}
+            build this is, and the status line the day view carries too. The
+            destructive action lives down here too, on its own, so it is never
+            a stray tap away from the backup buttons above. */}
         <div className="mt-auto pt-8">
           {/* An installed copy checks for itself whenever it comes back to
               the foreground; this is for when you want to know right now. */}
@@ -476,6 +481,15 @@ export default function MealRail() {
             </button>
           </div>
           <StatusLine saveError={saveError} notice={notice} saving={saving} />
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={() => setConfirmClearOpen(true)}
+              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: "transparent", color: C.red }}
+            >
+              Erase all history
+            </button>
+          </div>
         </div>
       </Screen>
     );
@@ -1106,7 +1120,7 @@ function DrinkDot({ size, fill }) {
 
 // The shell both editors share — scrim, safe-area padding, Escape and a
 // backdrop tap to close. Sharing it is what keeps the two looking alike.
-function Dialog({ title, onClose, children }) {
+function Dialog({ title, eyebrow = "Editing", ariaLabel, onClose, children }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
@@ -1128,7 +1142,7 @@ function Dialog({ title, onClose, children }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Edit ${title}`}
+        aria-label={ariaLabel || `Edit ${title}`}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-sm rounded-2xl p-5"
         style={{
@@ -1138,7 +1152,7 @@ function Dialog({ title, onClose, children }) {
         }}
       >
         <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
-          Editing
+          {eyebrow}
         </p>
         <h2 className="mt-1 text-2xl leading-tight" style={{ fontFamily: FONT.display }}>
           {title}
@@ -1146,6 +1160,47 @@ function Dialog({ title, onClose, children }) {
         {children}
       </div>
     </div>
+  );
+}
+
+// A pause long enough that "erase everything" can't be a reflexive
+// double-tap — the confirm button stays disabled until it elapses.
+const CONFIRM_ARM_MS = 5000;
+
+// A yes/no dialog for actions that can't be undone, styled like the entry
+// editors above. The confirm button only arms — turning red and becoming
+// clickable — once CONFIRM_ARM_MS has passed.
+function ConfirmDialog({ title, message, confirmLabel, onConfirm, onClose }) {
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setArmed(true), CONFIRM_ARM_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <Dialog title={title} eyebrow="This can't be undone" ariaLabel={title} onClose={onClose}>
+      <p className="mt-3 text-sm" style={{ color: C.muted }}>
+        {message}
+      </p>
+      <div className="mt-5 flex items-center justify-end gap-2">
+        <button
+          onClick={onClose}
+          className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: "transparent", color: C.muted }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={!armed}
+          className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+          style={{ background: armed ? C.red : C.surfaceHi, color: armed ? C.ground : C.muted }}
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </Dialog>
   );
 }
 
