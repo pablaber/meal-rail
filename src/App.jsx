@@ -173,7 +173,7 @@ export default function MealRail() {
     (async () => {
       const parsed = await load();
       if (alive && parsed) {
-        setSettings({ ...DEFAULTS, ...(parsed.settings || {}), slots: DEFAULTS.slots });
+        setSettings({ ...DEFAULTS, ...(parsed.settings || {}) });
         setDays(parsed.days || {});
       }
       if (alive) setReady(true);
@@ -506,7 +506,6 @@ export default function MealRail() {
                   const nextSettings = {
                     ...DEFAULTS,
                     ...(parsed.settings || {}),
-                    slots: DEFAULTS.slots,
                   };
                   setSettings(nextSettings);
                   setDays(parsed.days || {});
