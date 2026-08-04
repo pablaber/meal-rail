@@ -6,6 +6,6 @@ run_mode = "concurrent"
 
 [scripts.run.dev]
 available_in = [ "local" ]
-command = "npm run dev -- --port $CONDUCTOR_PORT"
+command = "npm install && npm run dev -- --port $CONDUCTOR_PORT"
 default = true
 icon = "play"
