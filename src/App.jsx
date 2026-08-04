@@ -113,7 +113,12 @@ export default function MealRail() {
   const [settings, setSettings] = useState(DEFAULTS);
   const [days, setDays] = useState({});
   const [today, setToday] = useState(dayKey());
-  const [panel, setPanel] = useState(false);
+  // Settings is a screen, not a panel, and it is reached through history so the
+  // device's own back button leaves it the same way the in-app arrow does.
+  // Seeded from history state, so a reload on settings comes back to settings.
+  const [view, setView] = useState(() =>
+    window.history.state?.view === "settings" ? "settings" : "today"
+  );
   const [confirmClear, setConfirmClear] = useState(false);
   const [editing, setEditing] = useState(null);
 
@@ -132,6 +137,36 @@ export default function MealRail() {
       alive = false;
     };
   }, []);
+
+  const openSettings = () => {
+    window.history.pushState({ view: "settings" }, "");
+    setView("settings");
+  };
+
+  // The in-app back button walks history rather than setting state directly, so
+  // it leaves exactly what the device's back button leaves — nothing stale
+  // behind it.
+  const closeSettings = () => window.history.back();
+
+  useEffect(() => {
+    const onPop = (e) => {
+      setView(e.state?.view === "settings" ? "settings" : "today");
+      setConfirmClear(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Escape leaves settings, the way it leaves a dialog. Nothing to conflict
+  // with: both dialogs are only reachable from the day view.
+  useEffect(() => {
+    if (view !== "settings") return;
+    const onKey = (e) => {
+      if (e.key === "Escape") closeSettings();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [view]);
 
   // Roll over at midnight / on refocus
   useEffect(() => {
@@ -322,438 +357,428 @@ export default function MealRail() {
     );
   }
 
-  return (
-    <div
-      className="flex w-full flex-col px-5 sm:px-8"
-      style={{
-        // 100dvh, plus the insets folded in, is exactly the visible area: the
-        // installed app fills the screen and stops, with nothing to scroll.
-        minHeight: "100dvh",
-        paddingTop: "calc(env(safe-area-inset-top) + 1.5rem)",
-        paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)",
-        background: C.ground,
-        color: C.chalk,
-        fontFamily: FONT.body,
-      }}
-    >
-      <style>{`
-        .node, .seg, .row { transition: all 220ms cubic-bezier(.2,.7,.3,1); }
-        @media (prefers-reduced-motion: reduce) {
-          .node, .seg, .row { transition: none !important; }
-        }
-      `}</style>
-
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
-        {/* Header */}
-        <header className="flex items-start justify-between gap-4">
-          <div>
-            <p
-              className="text-xs uppercase tracking-widest"
-              style={{ color: C.muted, fontFamily: FONT.mono }}
-            >
-              Today
-            </p>
-            <h1 className="mt-1 text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
-              {dateLabel}
-            </h1>
-          </div>
+  if (view === "settings") {
+    return (
+      <Screen>
+        <header className="flex items-start gap-3">
           <button
-            onClick={() => setPanel(!panel)}
-            aria-expanded={panel}
-            aria-label={panel ? "Close settings" : "Settings"}
+            onClick={closeSettings}
+            aria-label="Back"
             className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{ background: C.surface }}
           >
-            {panel ? <IconClose color={C.chalk} /> : <IconSliders color={C.muted} />}
+            <IconBack color={C.chalk} />
           </button>
+          <h1 className="text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+            Settings
+          </h1>
         </header>
 
-        {/* Settings */}
-        {panel && (
-          <section
-            className="mt-5 rounded-2xl p-4"
-            style={{ background: C.surface }}
-          >
-            <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
-              Your day
-            </p>
-
-            <label className="mt-3 flex items-center justify-between gap-3 text-sm">
-              <span>Offer a workout snack</span>
-              <button
-                onClick={() => writeSettings({ ...settings, trainingEnabled: !settings.trainingEnabled })}
-                role="switch"
-                aria-checked={settings.trainingEnabled}
-                className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{ background: settings.trainingEnabled ? C.done : C.surfaceHi }}
-              >
-                <span
-                  className="node block h-5 w-5 rounded-full"
-                  style={{
-                    background: C.ground,
-                    transform: `translateX(${settings.trainingEnabled ? 22 : 2}px)`,
-                  }}
-                />
-              </button>
-            </label>
-
-            <div className="mt-5 flex flex-wrap gap-2 pt-4" style={{ borderTop: `1px solid ${C.rail}` }}>
-              <button
-                onClick={() => {
-                  exportFile({ settings, days });
-                  setNotice("Backup downloaded");
-                }}
-                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{ background: C.surfaceHi, color: C.chalk }}
-              >
-                Download a backup
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    const parsed = await importFile();
-                    const nextSettings = {
-                      ...DEFAULTS,
-                      ...(parsed.settings || {}),
-                      slots: DEFAULTS.slots,
-                    };
-                    setSettings(nextSettings);
-                    setDays(parsed.days || {});
-                    persist(nextSettings, parsed.days || {});
-                    setNotice("Backup restored");
-                  } catch (e) {
-                    setNotice(e.message);
-                  }
-                }}
-                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{ background: C.surfaceHi, color: C.chalk }}
-              >
-                Restore a backup
-              </button>
-              <button
-                onClick={async () => {
-                  if (!confirmClear) return setConfirmClear(true);
-                  setDays({});
-                  await clear();
-                  setConfirmClear(false);
-                  setNotice("History erased");
-                }}
-                onBlur={() => setConfirmClear(false)}
-                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{ background: "transparent", color: confirmClear ? C.brass : C.muted }}
-              >
-                {confirmClear ? "Tap again to erase" : "Erase all history"}
-              </button>
-            </div>
-
-            {/* An installed copy checks for itself whenever it comes back to
-                the foreground; this is for when you want to know right now. */}
-            <div
-              className="mt-5 flex items-center justify-between gap-3 pt-4"
-              style={{ borderTop: `1px solid ${C.rail}` }}
-            >
-              <span className="text-xs" style={{ color: C.rail, fontFamily: FONT.mono }}>
-                Version {BUILD_ID}
-              </span>
-              <button
-                onClick={async () => {
-                  setNotice("Checking…");
-                  const result = await checkForUpdate({ force: true });
-                  if (result === "updating") setNotice("Updating…");
-                  else if (result === "unknown") setNotice("Couldn't check — you may be offline");
-                  else setNotice("You're on the latest version");
-                }}
-                className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{ background: C.surfaceHi, color: C.chalk }}
-              >
-                Check for updates
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* The rail */}
-        <section className="relative mt-6">
-          <div className="relative">
-            {/* vertical line */}
-            <div
-              className="absolute left-[19.5px] top-3 bottom-3 w-px"
-              style={{ background: C.rail }}
-              aria-hidden="true"
-            />
-
-            <ul className="flex flex-col gap-1">
-              <ExtraRows items={extrasAt[0]} onEdit={setEditing} />
-              {slots.map((s, i) => {
-                const t = record.checks[s.id];
-                const note = (record.notes || {})[s.id];
-                return (
-                  // The extras that follow a meal live inside its <li>, so the
-                  // list's own gap can't reach them — it repeats here, and every
-                  // row on the rail ends up the same distance apart.
-                  <li key={s.id} className="flex flex-col gap-1">
-                    <button
-                      // A checked row opens the editor rather than clearing
-                      // itself — undoing a meal shouldn't be one stray tap away.
-                      onClick={() =>
-                        t ? setEditing({ kind: "slot", id: s.id, label: s.label }) : check(s.id)
-                      }
-                      aria-pressed={!!t}
-                      aria-label={t ? `Edit ${s.label}` : `Check off ${s.label}`}
-                      className="row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                      style={{ background: t ? C.surface : "transparent" }}
-                    >
-                      <span
-                        className="node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-                        style={{
-                          background: t ? C.done : C.ground,
-                          border: `1px solid ${t ? C.done : C.rail}`,
-                          transform: t ? "scale(1)" : "scale(0.82)",
-                        }}
-                      >
-                        {t && (
-                          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-                            <path
-                              d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
-                              fill="none"
-                              stroke={C.ground}
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className="block text-lg"
-                          style={{
-                            fontFamily: FONT.display,
-                            color: t ? C.chalk : C.muted,
-                          }}
-                        >
-                          {s.label}
-                        </span>
-                        {note && (
-                          <span className="block truncate text-xs" style={{ color: C.muted }}>
-                            {note}
-                          </span>
-                        )}
-                      </span>
-                      <span
-                        className={`text-xs${t ? " pr-1" : ""}`}
-                        style={{
-                          color: t ? C.done : C.rail,
-                          fontFamily: FONT.mono,
-                        }}
-                      >
-                        {t ? clock(t) : "—"}
-                      </span>
-                    </button>
-
-                    <ExtraRows items={extrasAt[i + 1]} onEdit={setEditing} />
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          {/* The two things a day picks up off-plan, side by side and equally
-              weighted — the rail above is what was planned, this row is what
-              wasn't. Neither is wide enough for a sentence, hence the glyph.
-              No left inset: the row spans the full width, so anything on one
-              side only would take its seam off the centre line and out of step
-              with the drinks row below. */}
-          <div className="mt-4 flex items-stretch gap-2">
-            <AddButton onClick={addUnplanned} color={C.brass} label={SNACK_LABEL} />
-            {settings.trainingEnabled && (
-              <AddButton
-                onClick={addWorkout}
-                color={C.done}
-                label={WORKOUT_LABEL}
-                done={workouts.length > 0}
-              />
-            )}
-          </div>
-
-          {/* Tapping the pill only ever adds. The count beside it is the one way
-              down again, so a stray tap can't undo a night's worth of counting.
-
-              Two half-width tracks that meet in the middle, the near one packed
-              right and the far one packed left. Centring the pair instead would
-              put the seam wherever the count's width happened to leave it; this
-              way the gap lands on the centre line and stays there as the count
-              grows, in the same place as the gap in the row above. */}
-          <div className="mt-3 flex items-center gap-2">
-            <div className="flex flex-1 justify-end">
-              {/* Sized rather than grown: filling its half would leave the seam
-                  correct but the button far wider than the count beside it. */}
-              <AddButton onClick={addDrink} color={C.red} label="Drink" grow={false} width="9.5rem" />
-            </div>
-            <div className="flex flex-1 justify-start">
-            {drinks > 0 ? (
-              <button
-                onClick={() => setEditing({ kind: "drinks", id: "drinks", label: "Drinks" })}
-                aria-label={`Edit drinks — ${drinks} logged`}
-                className="flex items-center gap-2 rounded-full px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                style={{ background: C.surface, border: BUBBLE_EDGE }}
-              >
-                <span className="flex items-center gap-[3px]" aria-hidden="true">
-                  {drinkCircles(drinks)
-                    .slice(0, DRINK_DOTS_MAX)
-                    .map((fill, i) => (
-                      <DrinkDot key={i} size={10} fill={fill} />
-                    ))}
-                </span>
-                <span style={{ color: C.chalk, fontFamily: FONT.mono }}>{drinks}</span>
-              </button>
-            ) : (
-              // Not a control — there is nothing to edit about none — so it is a
-              // plain bubble holding the standing answer to what the button asks.
-              <span
-                role="img"
-                aria-label="No drinks logged today"
-                className="flex items-center gap-2 rounded-full px-3 py-2 text-base"
-                style={{ background: C.surface, border: BUBBLE_EDGE }}
-              >
-                <span
-                  className="flex h-4 w-4 items-center justify-center rounded-full"
-                  style={{ background: C.done }}
-                  aria-hidden="true"
-                >
-                  <svg width="10" height="10" viewBox="0 0 12 12">
-                    <path
-                      d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
-                      fill="none"
-                      stroke={C.ground}
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span aria-hidden="true" style={{ color: C.chalk, fontFamily: FONT.mono }}>
-                  None
-                </span>
-              </span>
-            )}
-            </div>
-          </div>
-        </section>
-
-        {/* History. mt-auto takes up whatever the rail leaves over, so a short
-            day puts the slack above this strip instead of below it. */}
-        <section className="mt-auto pt-8">
+        <section className="mt-8">
           <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
-            Last two weeks
+            Your day
           </p>
-          <div className="mt-4 flex items-end justify-between gap-1">
-            {history.map((d) => (
-              <div key={d.key} className="flex flex-1 flex-col items-center gap-1">
-                <div className="flex flex-col-reverse gap-[3px]">
-                  {Array.from({ length: Math.max(d.planned, 1) }).map((_, i) => (
-                    <span
-                      key={i}
-                      className="block h-[7px] w-[7px] rounded-[2px]"
-                      style={{ background: i < d.checks ? C.done : C.rail }}
-                    />
-                  ))}
-                </div>
-                <div className="mt-1 flex h-3 flex-col items-center gap-[2px]">
-                  {Array.from({ length: Math.min(d.extra, 3) }).map((_, i) => (
-                    <span
-                      key={i}
-                      className="block h-[3px] w-[7px] rounded-full"
-                      style={{ background: C.brass }}
-                    />
-                  ))}
-                </div>
-                {/* A fixed-height band, laid out across rather than up, so the
-                    day numbers stay on one line and drinks never read as meals.
-                    Three 6px dots is exactly what a column has room for. */}
-                <div className="flex h-[6px] items-center justify-center gap-[1px]">
-                  {drinkCircles(d.drinks)
-                    .slice(0, STRIP_DRINK_DOTS)
-                    .map((fill, i) => (
-                      <DrinkDot key={i} size={6} fill={fill} />
-                    ))}
-                </div>
-                {/* The verdict on a finished day. A fixed height, so the days
-                    without one keep their numbers on the same baseline. */}
-                <div className="flex h-[13px] items-center justify-center">
-                  {d.badge && <DayBadge tier={d.badge} />}
-                </div>
-                <span
-                  className="text-[10px]"
-                  style={{ color: d.isToday ? C.chalk : C.rail, fontFamily: FONT.mono }}
-                >
-                  {d.key.slice(8)}
-                </span>
-              </div>
-            ))}
+
+          <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+            <span>Offer a workout snack</span>
+            <button
+              onClick={() => writeSettings({ ...settings, trainingEnabled: !settings.trainingEnabled })}
+              role="switch"
+              aria-checked={settings.trainingEnabled}
+              className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: settings.trainingEnabled ? C.done : C.surfaceHi }}
+            >
+              <span
+                className="node block h-5 w-5 rounded-full"
+                style={{
+                  background: C.ground,
+                  transform: `translateX(${settings.trainingEnabled ? 22 : 2}px)`,
+                }}
+              />
+            </button>
+          </label>
+
+          <div className="mt-5 flex flex-wrap gap-2 pt-4" style={{ borderTop: `1px solid ${C.rail}` }}>
+            <button
+              onClick={() => {
+                exportFile({ settings, days });
+                setNotice("Backup downloaded");
+              }}
+              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surfaceHi, color: C.chalk }}
+            >
+              Download a backup
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const parsed = await importFile();
+                  const nextSettings = {
+                    ...DEFAULTS,
+                    ...(parsed.settings || {}),
+                    slots: DEFAULTS.slots,
+                  };
+                  setSettings(nextSettings);
+                  setDays(parsed.days || {});
+                  persist(nextSettings, parsed.days || {});
+                  setNotice("Backup restored");
+                } catch (e) {
+                  setNotice(e.message);
+                }
+              }}
+              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surfaceHi, color: C.chalk }}
+            >
+              Restore a backup
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirmClear) return setConfirmClear(true);
+                setDays({});
+                await clear();
+                setConfirmClear(false);
+                setNotice("History erased");
+              }}
+              onBlur={() => setConfirmClear(false)}
+              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: "transparent", color: confirmClear ? C.brass : C.muted }}
+            >
+              {confirmClear ? "Tap again to erase" : "Erase all history"}
+            </button>
           </div>
-          <p className="mt-4 text-sm" style={{ color: C.muted }}>
-            {weekExtras === 0
-              ? "Nothing unplanned logged this week."
-              : `${weekExtras} unplanned ${weekExtras === 1 ? "snack" : "snacks"} in the last 7 days.`}{" "}
-            {weekDrinks === 0
-              ? "No drinks logged this week."
-              : `${weekDrinks} ${weekDrinks === 1 ? "drink" : "drinks"} in the last 7 days.`}
-          </p>
-          <p
-            className="mt-4 text-xs"
-            style={{ color: saveError ? C.brass : C.rail, fontFamily: FONT.mono }}
-            aria-live="polite"
-          >
-            {saveError
-              ? "Couldn't save — this browser is blocking storage."
-              : notice
-                ? notice
-                : saving
-                  ? "Saving…"
-                  : "Saved on this device"}
-          </p>
+
         </section>
-      </div>
 
-      {editing && editTarget && editing.kind === "drinks" && (
-        <DrinkDialog
-          count={editTarget.count}
-          onClose={() => setEditing(null)}
-          onSave={(n) => {
-            setDrinkCount(n);
-            setEditing(null);
-          }}
-          onClear={() => {
-            setDrinkCount(0);
-            setEditing(null);
-          }}
-        />
-      )}
+        {/* What the app says about itself, at the foot of the screen: which
+            build this is, and the status line the day view carries too. */}
+        <div className="mt-auto pt-8">
+          {/* An installed copy checks for itself whenever it comes back to
+              the foreground; this is for when you want to know right now. */}
+          <div
+            className="flex items-center justify-between gap-3 pt-4"
+            style={{ borderTop: `1px solid ${C.rail}` }}
+          >
+            <span className="text-xs" style={{ color: C.rail, fontFamily: FONT.mono }}>
+              Version {BUILD_ID}
+            </span>
+            <button
+              onClick={async () => {
+                setNotice("Checking…");
+                const result = await checkForUpdate({ force: true });
+                if (result === "updating") setNotice("Updating…");
+                else if (result === "unknown") setNotice("Couldn't check — you may be offline");
+                else setNotice("You're on the latest version");
+              }}
+              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surfaceHi, color: C.chalk }}
+            >
+              Check for updates
+            </button>
+          </div>
+          <StatusLine saveError={saveError} notice={notice} saving={saving} />
+        </div>
+      </Screen>
+    );
+  }
 
-      {editing && editTarget && editing.kind !== "drinks" && (
-        <EditDialog
-          key={editing.id}
-          title={editing.label}
-          time={editTarget.time}
-          note={editTarget.note}
-          removeLabel={editing.kind === "slot" ? "Uncheck" : "Remove"}
-          onClose={() => setEditing(null)}
-          onSave={(patch) => {
-            if (editing.kind === "slot") editCheck(editing.id, patch);
-            else if (editing.kind === "workout") editWorkout(editing.id, patch);
-            else editUnplanned(editing.id, patch);
-            setEditing(null);
-          }}
-          onRemove={() => {
-            if (editing.kind === "slot") uncheck(editing.id);
-            else if (editing.kind === "workout") removeWorkout(editing.id);
-            else removeUnplanned(editing.id);
-            setEditing(null);
-          }}
-        />
-      )}
-    </div>
+  return (
+    <Screen
+      overlay={
+        <>
+          {editing && editTarget && editing.kind === "drinks" && (
+            <DrinkDialog
+              count={editTarget.count}
+              onClose={() => setEditing(null)}
+              onSave={(n) => {
+                setDrinkCount(n);
+                setEditing(null);
+              }}
+              onClear={() => {
+                setDrinkCount(0);
+                setEditing(null);
+              }}
+            />
+          )}
+
+          {editing && editTarget && editing.kind !== "drinks" && (
+            <EditDialog
+              key={editing.id}
+              title={editing.label}
+              time={editTarget.time}
+              note={editTarget.note}
+              removeLabel={editing.kind === "slot" ? "Uncheck" : "Remove"}
+              onClose={() => setEditing(null)}
+              onSave={(patch) => {
+                if (editing.kind === "slot") editCheck(editing.id, patch);
+                else if (editing.kind === "workout") editWorkout(editing.id, patch);
+                else editUnplanned(editing.id, patch);
+                setEditing(null);
+              }}
+              onRemove={() => {
+                if (editing.kind === "slot") uncheck(editing.id);
+                else if (editing.kind === "workout") removeWorkout(editing.id);
+                else removeUnplanned(editing.id);
+                setEditing(null);
+              }}
+            />
+          )}
+        </>
+      }
+    >
+      {/* Header */}
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            Today
+          </p>
+          <h1 className="mt-1 text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+            {dateLabel}
+          </h1>
+        </div>
+        <button
+          onClick={openSettings}
+          aria-label="Settings"
+          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: C.surface }}
+        >
+          <IconSliders color={C.muted} />
+        </button>
+      </header>
+
+      {/* The rail */}
+      <section className="relative mt-6">
+        <div className="relative">
+          {/* vertical line */}
+          <div
+            className="absolute left-[19.5px] top-3 bottom-3 w-px"
+            style={{ background: C.rail }}
+            aria-hidden="true"
+          />
+
+          <ul className="flex flex-col gap-1">
+            <ExtraRows items={extrasAt[0]} onEdit={setEditing} />
+            {slots.map((s, i) => {
+              const t = record.checks[s.id];
+              const note = (record.notes || {})[s.id];
+              return (
+                // The extras that follow a meal live inside its <li>, so the
+                // list's own gap can't reach them — it repeats here, and every
+                // row on the rail ends up the same distance apart.
+                <li key={s.id} className="flex flex-col gap-1">
+                  <button
+                    // A checked row opens the editor rather than clearing
+                    // itself — undoing a meal shouldn't be one stray tap away.
+                    onClick={() =>
+                      t ? setEditing({ kind: "slot", id: s.id, label: s.label }) : check(s.id)
+                    }
+                    aria-pressed={!!t}
+                    aria-label={t ? `Edit ${s.label}` : `Check off ${s.label}`}
+                    className="row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    style={{ background: t ? C.surface : "transparent" }}
+                  >
+                    <span
+                      className="node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                      style={{
+                        background: t ? C.done : C.ground,
+                        border: `1px solid ${t ? C.done : C.rail}`,
+                        transform: t ? "scale(1)" : "scale(0.82)",
+                      }}
+                    >
+                      {t && (
+                        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                          <path
+                            d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
+                            fill="none"
+                            stroke={C.ground}
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className="block text-lg"
+                        style={{
+                          fontFamily: FONT.display,
+                          color: t ? C.chalk : C.muted,
+                        }}
+                      >
+                        {s.label}
+                      </span>
+                      {note && (
+                        <span className="block truncate text-xs" style={{ color: C.muted }}>
+                          {note}
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className={`text-xs${t ? " pr-1" : ""}`}
+                      style={{
+                        color: t ? C.done : C.rail,
+                        fontFamily: FONT.mono,
+                      }}
+                    >
+                      {t ? clock(t) : "—"}
+                    </span>
+                  </button>
+
+                  <ExtraRows items={extrasAt[i + 1]} onEdit={setEditing} />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {/* The two things a day picks up off-plan, side by side and equally
+            weighted — the rail above is what was planned, this row is what
+            wasn't. Neither is wide enough for a sentence, hence the glyph.
+            No left inset: the row spans the full width, so anything on one
+            side only would take its seam off the centre line and out of step
+            with the drinks row below. */}
+        <div className="mt-4 flex items-stretch gap-2">
+          <AddButton onClick={addUnplanned} color={C.brass} label={SNACK_LABEL} />
+          {settings.trainingEnabled && (
+            <AddButton
+              onClick={addWorkout}
+              color={C.done}
+              label={WORKOUT_LABEL}
+              done={workouts.length > 0}
+            />
+          )}
+        </div>
+
+        {/* Tapping the pill only ever adds. The count beside it is the one way
+            down again, so a stray tap can't undo a night's worth of counting.
+
+            Two half-width tracks that meet in the middle, the near one packed
+            right and the far one packed left. Centring the pair instead would
+            put the seam wherever the count's width happened to leave it; this
+            way the gap lands on the centre line and stays there as the count
+            grows, in the same place as the gap in the row above. */}
+        <div className="mt-3 flex items-center gap-2">
+          <div className="flex flex-1 justify-end">
+            {/* Sized rather than grown: filling its half would leave the seam
+                correct but the button far wider than the count beside it. */}
+            <AddButton onClick={addDrink} color={C.red} label="Drink" grow={false} width="9.5rem" />
+          </div>
+          <div className="flex flex-1 justify-start">
+          {drinks > 0 ? (
+            <button
+              onClick={() => setEditing({ kind: "drinks", id: "drinks", label: "Drinks" })}
+              aria-label={`Edit drinks — ${drinks} logged`}
+              className="flex items-center gap-2 rounded-full px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surface, border: BUBBLE_EDGE }}
+            >
+              <span className="flex items-center gap-[3px]" aria-hidden="true">
+                {drinkCircles(drinks)
+                  .slice(0, DRINK_DOTS_MAX)
+                  .map((fill, i) => (
+                    <DrinkDot key={i} size={10} fill={fill} />
+                  ))}
+              </span>
+              <span style={{ color: C.chalk, fontFamily: FONT.mono }}>{drinks}</span>
+            </button>
+          ) : (
+            // Not a control — there is nothing to edit about none — so it is a
+            // plain bubble holding the standing answer to what the button asks.
+            <span
+              role="img"
+              aria-label="No drinks logged today"
+              className="flex items-center gap-2 rounded-full px-3 py-2 text-base"
+              style={{ background: C.surface, border: BUBBLE_EDGE }}
+            >
+              <span
+                className="flex h-4 w-4 items-center justify-center rounded-full"
+                style={{ background: C.done }}
+                aria-hidden="true"
+              >
+                <svg width="10" height="10" viewBox="0 0 12 12">
+                  <path
+                    d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
+                    fill="none"
+                    stroke={C.ground}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              <span aria-hidden="true" style={{ color: C.chalk, fontFamily: FONT.mono }}>
+                None
+              </span>
+            </span>
+          )}
+          </div>
+        </div>
+      </section>
+
+      {/* History. mt-auto takes up whatever the rail leaves over, so a short
+          day puts the slack above this strip instead of below it. */}
+      <section className="mt-auto pt-8">
+        <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+          Last two weeks
+        </p>
+        <div className="mt-4 flex items-end justify-between gap-1">
+          {history.map((d) => (
+            <div key={d.key} className="flex flex-1 flex-col items-center gap-1">
+              <div className="flex flex-col-reverse gap-[3px]">
+                {Array.from({ length: Math.max(d.planned, 1) }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="block h-[7px] w-[7px] rounded-[2px]"
+                    style={{ background: i < d.checks ? C.done : C.rail }}
+                  />
+                ))}
+              </div>
+              <div className="mt-1 flex h-3 flex-col items-center gap-[2px]">
+                {Array.from({ length: Math.min(d.extra, 3) }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="block h-[3px] w-[7px] rounded-full"
+                    style={{ background: C.brass }}
+                  />
+                ))}
+              </div>
+              {/* A fixed-height band, laid out across rather than up, so the
+                  day numbers stay on one line and drinks never read as meals.
+                  Three 6px dots is exactly what a column has room for. */}
+              <div className="flex h-[6px] items-center justify-center gap-[1px]">
+                {drinkCircles(d.drinks)
+                  .slice(0, STRIP_DRINK_DOTS)
+                  .map((fill, i) => (
+                    <DrinkDot key={i} size={6} fill={fill} />
+                  ))}
+              </div>
+              {/* The verdict on a finished day. A fixed height, so the days
+                  without one keep their numbers on the same baseline. */}
+              <div className="flex h-[13px] items-center justify-center">
+                {d.badge && <DayBadge tier={d.badge} />}
+              </div>
+              <span
+                className="text-[10px]"
+                style={{ color: d.isToday ? C.chalk : C.rail, fontFamily: FONT.mono }}
+              >
+                {d.key.slice(8)}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-sm" style={{ color: C.muted }}>
+          {weekExtras === 0
+            ? "Nothing unplanned logged this week."
+            : `${weekExtras} unplanned ${weekExtras === 1 ? "snack" : "snacks"} in the last 7 days.`}{" "}
+          {weekDrinks === 0
+            ? "No drinks logged this week."
+            : `${weekDrinks} ${weekDrinks === 1 ? "drink" : "drinks"} in the last 7 days.`}
+        </p>
+        <StatusLine saveError={saveError} notice={notice} saving={saving} />
+      </section>
+    </Screen>
   );
 }
 
@@ -916,9 +941,66 @@ function UnplannedRow({ u, onEdit }) {
   );
 }
 
-// The settings button's two faces. The pill keeps one background across both
-// states — only the glyph changes, so the button doesn't flash when the panel
-// opens under it.
+// The page itself: the full visible area, the type, and the column both screens
+// are laid out in. `overlay` sits beside the column rather than inside it, which
+// is where the dialogs have always hung.
+function Screen({ children, overlay }) {
+  return (
+    <div
+      className="flex w-full flex-col px-5 sm:px-8"
+      style={{
+        // 100dvh, plus the insets folded in, is exactly the visible area: the
+        // installed app fills the screen and stops, with nothing to scroll.
+        minHeight: "100dvh",
+        paddingTop: "calc(env(safe-area-inset-top) + 1.5rem)",
+        paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)",
+        background: C.ground,
+        color: C.chalk,
+        fontFamily: FONT.body,
+      }}
+    >
+      <style>{`
+        .node, .seg, .row { transition: all 220ms cubic-bezier(.2,.7,.3,1); }
+        @media (prefers-reduced-motion: reduce) {
+          .node, .seg, .row { transition: none !important; }
+        }
+      `}</style>
+
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col">{children}</div>
+
+      {overlay}
+    </div>
+  );
+}
+
+// What the app has to say about itself, at the foot of whichever screen you are
+// on — settings reports its backups and updates through the same line the day
+// view reports saving through.
+//
+// Nothing to say most of the time: a line standing by to say "saved" is worth
+// less than the quiet. It keeps its height while it is empty so the foot of the
+// screen doesn't jump when there is something to say, and it stays mounted
+// either way — an aria-live region only announces text that arrives in a region
+// that was already there.
+function StatusLine({ saveError, notice, saving }) {
+  return (
+    <p
+      className="mt-4 min-h-4 text-xs"
+      style={{ color: saveError ? C.brass : C.rail, fontFamily: FONT.mono }}
+      aria-live="polite"
+    >
+      {saveError
+        ? "Couldn't save — this browser is blocking storage."
+        : notice
+          ? notice
+          : saving
+            ? "Saving…"
+            : ""}
+    </p>
+  );
+}
+
+// The way in to settings, and the way back out.
 function IconSliders({ color }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -929,10 +1011,16 @@ function IconSliders({ color }) {
   );
 }
 
-function IconClose({ color }) {
+function IconBack({ color }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 6l12 12M18 6L6 18" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+      <path
+        d="M15 5l-7 7 7 7"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
