@@ -1144,7 +1144,7 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
   const [draftNote, setDraftNote] = useState(note || "");
 
   const field =
-    "mt-1 w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
+    "mt-1 w-full rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
   const fieldStyle = { background: C.surfaceHi, color: C.chalk, border: "none" };
 
   return (
@@ -1159,7 +1159,7 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
             type="time"
             value={draftTime}
             onChange={(e) => setDraftTime(e.target.value)}
-            className="block w-full min-w-0 max-w-full px-3 py-2 text-sm focus:outline-none"
+            className="block w-full min-w-0 max-w-full px-3 py-2 text-base focus:outline-none"
             style={{
               background: "transparent",
               color: C.chalk,
