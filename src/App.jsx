@@ -72,9 +72,29 @@ const BADGE_LABEL = {
   empty: "No meals logged",
 };
 
+const CALENDAR_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 const dayKey = (d = new Date()) => {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+// The grading inputs for a single date, shared by the two-week strip and the
+// calendar so the same day always earns the same badge in both places. Today
+// is carried in rather than resolved with a fresh `new Date()` here, so a
+// midnight rollover under an open calendar can't grade the day still being
+// written.
+const daySummary = (days, key, defaultPlanned, isToday) => {
+  const r = days[key];
+  const entry = {
+    key,
+    planned: r?.planned ?? defaultPlanned,
+    checks: r ? Object.keys(r.checks || {}).length + (r.workouts || []).length : 0,
+    extra: r ? (r.unplanned || []).length : 0,
+    drinks: r?.drinks || 0,
+    isToday,
+  };
+  return { ...entry, badge: isToday ? null : dayBadge(entry) };
 };
 
 const shiftDay = (key, delta) => {
@@ -113,14 +133,23 @@ export default function MealRail() {
   const [settings, setSettings] = useState(DEFAULTS);
   const [days, setDays] = useState({});
   const [today, setToday] = useState(dayKey());
-  // Settings is a screen, not a panel, and it is reached through history so the
-  // device's own back button leaves it the same way the in-app arrow does.
-  // Seeded from history state, so a reload on settings comes back to settings.
-  const [view, setView] = useState(() =>
-    window.history.state?.view === "settings" ? "settings" : "today"
-  );
+  // Settings and the calendar are screens, not panels, and both are reached
+  // through history so the device's own back button leaves them the same way
+  // the in-app arrow does. Seeded from history state, so a reload on either
+  // comes back to the same screen.
+  const [view, setView] = useState(() => {
+    const v = window.history.state?.view;
+    return v === "settings" || v === "calendar" ? v : "today";
+  });
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  // The month the calendar is showing, as a plain year/month pair rather than
+  // a Date — every opening resets this to the current month, and browsing
+  // months moves it without touching history.
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
 
   // Load
   useEffect(() => {
@@ -143,26 +172,34 @@ export default function MealRail() {
     setView("settings");
   };
 
+  const openCalendar = () => {
+    const d = new Date();
+    setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
+    window.history.pushState({ view: "calendar" }, "");
+    setView("calendar");
+  };
+
   // The in-app back button walks history rather than setting state directly, so
   // it leaves exactly what the device's back button leaves — nothing stale
-  // behind it.
-  const closeSettings = () => window.history.back();
+  // behind it. Settings and the calendar both close the same way.
+  const goBack = () => window.history.back();
 
   useEffect(() => {
     const onPop = (e) => {
-      setView(e.state?.view === "settings" ? "settings" : "today");
+      const v = e.state?.view;
+      setView(v === "settings" || v === "calendar" ? v : "today");
       setConfirmClearOpen(false);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // Escape leaves settings, the way it leaves a dialog. Nothing to conflict
-  // with: both dialogs are only reachable from the day view.
+  // Escape leaves settings or the calendar, the way it leaves a dialog.
+  // Nothing to conflict with: both are only reachable from the day view.
   useEffect(() => {
-    if (view !== "settings") return;
+    if (view !== "settings" && view !== "calendar") return;
     const onKey = (e) => {
-      if (e.key === "Escape") closeSettings();
+      if (e.key === "Escape") goBack();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -302,22 +339,42 @@ export default function MealRail() {
     const out = [];
     for (let i = 13; i >= 0; i--) {
       const k = shiftDay(today, -i);
-      const r = days[k];
-      const isToday = k === today;
-      const entry = {
-        key: k,
-        planned: r?.planned ?? settings.slots.length,
-        // Workouts are logged already checked, so they count on both sides.
-        checks: r ? Object.keys(r.checks || {}).length + (r.workouts || []).length : 0,
-        extra: r ? (r.unplanned || []).length : 0,
-        drinks: r?.drinks || 0,
-        isToday,
-      };
-      // Today is still being written, so it isn't graded yet.
-      out.push({ ...entry, badge: isToday ? null : dayBadge(entry) });
+      out.push(daySummary(days, k, settings.slots.length, k === today));
     }
     return out;
   }, [days, today, settings.slots.length]);
+
+  const shiftMonth = (delta) =>
+    setCalendarMonth(({ year, month }) => {
+      const d = new Date(year, month + delta, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+
+  // One cell per date in the month, in Sunday-first weekday order, with a
+  // blank cell for each weekday before the 1st. No trailing blanks: the grid
+  // is seven columns wide, so whatever's left over after the last date just
+  // leaves the final row short, which reads the same as an explicit blank.
+  const calendarCells = useMemo(() => {
+    const { year, month } = calendarMonth;
+    const firstDow = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < firstDow; i++) cells.push(null);
+    for (let day = 1; day <= daysInMonth; day++) {
+      const key = dayKey(new Date(year, month, day));
+      cells.push({ day, ...daySummary(days, key, settings.slots.length, key === today) });
+    }
+    return cells;
+  }, [calendarMonth, days, settings.slots.length, today]);
+
+  const calendarMonthLabel = useMemo(
+    () =>
+      new Date(calendarMonth.year, calendarMonth.month, 1).toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
+      }),
+    [calendarMonth]
+  );
 
   const weekExtras = history.slice(7).reduce((a, d) => a + d.extra, 0);
   const weekDrinks = history.slice(7).reduce((a, d) => a + d.drinks, 0);
@@ -379,7 +436,7 @@ export default function MealRail() {
       >
         <header className="flex items-start gap-3">
           <button
-            onClick={closeSettings}
+            onClick={goBack}
             aria-label="Back"
             className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{ background: C.surface }}
@@ -495,6 +552,79 @@ export default function MealRail() {
     );
   }
 
+  if (view === "calendar") {
+    return (
+      <Screen>
+        <header className="flex items-start gap-3">
+          <button
+            onClick={goBack}
+            aria-label="Back"
+            className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.surface }}
+          >
+            <IconBack color={C.chalk} />
+          </button>
+          <h1 className="text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+            Calendar
+          </h1>
+        </header>
+
+        <section className="mt-8">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={() => shiftMonth(-1)}
+              aria-label="Previous month"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surface }}
+            >
+              <IconChevronLeft color={C.chalk} />
+            </button>
+            <p className="text-lg" style={{ fontFamily: FONT.display }}>
+              {calendarMonthLabel}
+            </p>
+            <button
+              onClick={() => shiftMonth(1)}
+              aria-label="Next month"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surface }}
+            >
+              <IconChevronRight color={C.chalk} />
+            </button>
+          </div>
+
+          <div className="mt-6 grid grid-cols-7 gap-y-3">
+            {CALENDAR_WEEKDAYS.map((w) => (
+              <span
+                key={w}
+                className="text-center text-[10px] uppercase tracking-widest"
+                style={{ color: C.muted, fontFamily: FONT.mono }}
+              >
+                {w}
+              </span>
+            ))}
+            {calendarCells.map((cell, i) =>
+              cell ? (
+                <div key={cell.key} className="flex flex-col items-center gap-1">
+                  <div className="flex h-[11px] items-center justify-center">
+                    {cell.badge && <DayBadge tier={cell.badge} />}
+                  </div>
+                  <span
+                    className="text-sm"
+                    style={{ color: cell.isToday ? C.chalk : C.muted, fontFamily: FONT.mono }}
+                  >
+                    {cell.day}
+                  </span>
+                </div>
+              ) : (
+                <div key={`blank-${i}`} aria-hidden="true" />
+              )
+            )}
+          </div>
+        </section>
+      </Screen>
+    );
+  }
+
   return (
     <Screen
       overlay={
@@ -552,14 +682,24 @@ export default function MealRail() {
             {dateLabel}
           </h1>
         </div>
-        <button
-          onClick={openSettings}
-          aria-label="Settings"
-          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-          style={{ background: C.surface }}
-        >
-          <IconSliders color={C.muted} />
-        </button>
+        <div className="mt-1 flex shrink-0 items-center gap-2">
+          <button
+            onClick={openCalendar}
+            aria-label="Calendar"
+            className="flex h-9 w-9 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.surface }}
+          >
+            <IconCalendar color={C.muted} />
+          </button>
+          <button
+            onClick={openSettings}
+            aria-label="Settings"
+            className="flex h-9 w-9 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.surface }}
+          >
+            <IconSliders color={C.muted} />
+          </button>
+        </div>
       </header>
 
       {/* The rail */}
@@ -1030,6 +1170,44 @@ function IconBack({ color }) {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M15 5l-7 7 7 7"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// The way in to the calendar, beside settings and matching its treatment.
+function IconCalendar({ color }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="3.5" y="5" width="17" height="15" rx="2" stroke={color} strokeWidth="1.7" />
+      <path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconChevronLeft({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M15 5l-7 7 7 7"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconChevronRight({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M9 5l7 7-7 7"
         stroke={color}
         strokeWidth="1.7"
         strokeLinecap="round"
