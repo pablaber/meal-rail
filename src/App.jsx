@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { C, FONT } from "./theme.js";
 import { load, save, clear, exportFile, importFile } from "./storage.js";
 import { BUILD_ID, checkForUpdate } from "./update.js";
@@ -170,6 +170,19 @@ const formatDate = (key) =>
 // entry under the editor belongs to.
 const formatDateShort = (key) =>
   dateAt(key).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+// The wordings a day screen can title itself with, longest first, for
+// `FitHeading` to work down. The year is what pushes this past the width of a
+// narrow phone, and on a day in the year you are standing in it says nothing you
+// didn't know — so it only shows up when the day is in another one.
+const dayHeadings = (key, todayKey) => {
+  const year = key.slice(0, 4) === todayKey.slice(0, 4) ? {} : { year: "numeric" };
+  const d = dateAt(key);
+  return [
+    d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", ...year }),
+    d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", ...year }),
+  ];
+};
 
 const clock = (iso) =>
   new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -583,15 +596,9 @@ export default function MealRail() {
   const weekExtras = history.slice(7).reduce((a, d) => a + d.extra, 0);
   const weekDrinks = history.slice(7).reduce((a, d) => a + d.drinks, 0);
 
-  const dateLabel = useMemo(
-    () =>
-      dateAt(today).toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-      }),
-    [today]
-  );
+  // Today against itself as the reference year, so the heading never carries a
+  // year — the one day you can't be wrong about which one it is.
+  const dateHeadings = useMemo(() => dayHeadings(today, today), [today]);
 
   // Resolved from the record rather than captured when the row was tapped, so
   // a midnight rollover under an open dialog closes it instead of writing to a
@@ -930,6 +937,7 @@ export default function MealRail() {
     return (
       <PastDay
         dateKey={selectedDay}
+        today={today}
         record={selectedDayRecord}
         slots={slots}
         summary={selectedDaySummary}
@@ -945,16 +953,23 @@ export default function MealRail() {
     <Screen overlay={entryDialogs}>
       {/* Header */}
       <header className="flex items-start justify-between gap-4">
-        <div>
+        {/* `min-w-0` or the heading doesn't shrink: nowrap makes its min-content
+            width the whole string, and the flex item would shove the buttons
+            beside it off the screen rather than give any of that width back. */}
+        <div className="min-w-0 flex-1">
           <p
             className="text-xs uppercase tracking-widest"
             style={{ color: C.muted, fontFamily: FONT.mono }}
           >
             Today
           </p>
-          <h1 className="mt-1 text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
-            {dateLabel}
-          </h1>
+          <FitHeading
+            options={dateHeadings}
+            max={30}
+            min={20}
+            className="mt-1 leading-tight"
+            style={{ fontFamily: FONT.display }}
+          />
         </div>
         <div className="mt-1 flex shrink-0 items-center gap-2">
           <button
@@ -1299,7 +1314,7 @@ function ExtraRows({ items, onEdit }) {
   );
 }
 
-function PastDay({ dateKey, record, slots, summary, editable, onEdit, onBack, status }) {
+function PastDay({ dateKey, today, record, slots, summary, editable, onEdit, onBack, status }) {
   const checks = record?.checks || {};
   const notes = record?.notes || {};
   const snacks = record?.unplanned || [];
@@ -1325,9 +1340,13 @@ function PastDay({ dateKey, record, slots, summary, editable, onEdit, onBack, st
           >
             Past day
           </p>
-          <h1 className="mt-1 text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
-            {formatDate(dateKey)}
-          </h1>
+          <FitHeading
+            options={dayHeadings(dateKey, today)}
+            max={30}
+            min={20}
+            className="mt-1 leading-tight"
+            style={{ fontFamily: FONT.display }}
+          />
         </div>
         {editable && (
           <button
@@ -1662,6 +1681,90 @@ function UnplannedRow({ u, onEdit }) {
         {clock(u.t)}
       </span>
     </button>
+  );
+}
+
+// A heading that shrinks rather than wraps. The dates these carry swing from
+// "Sat, Aug 1" to "Wednesday, September 25, 2026", the room they get is whatever
+// a pair of icon buttons leaves over, and a wrapped date pushes the whole screen
+// down by a line on a narrow phone.
+//
+// `options` is the same date worded longest-first. A wording is shrunk as far as
+// `min` before the next one down is tried, because a briefer date reads worse
+// than a smaller one — the fallback is a last resort, not the first move.
+//
+// The measurement leans on two things staying still: the h1 is a block, so
+// `clientWidth` is the width available whatever the type is doing, and
+// `whitespace-nowrap` makes `scrollWidth` the width the line wants. Neither
+// moves when the font size does, which is what keeps the observer below off its
+// own tail. Sizing is one pass rather than a search — text width is near enough
+// linear in font size that scaling by how far it ran over lands it, and a few
+// single-pixel steps take up the rounding.
+function FitHeading({ options, max, min, className = "", style }) {
+  const ref = useRef(null);
+  const [shown, setShown] = useState({ text: options[0], size: max });
+  // `options` is a fresh array most renders; its contents are what the fit
+  // actually depends on, and a newline is the one thing a formatted date can't
+  // contain — so the effect takes the list back apart rather than closing over
+  // an identity that churns.
+  const wordings = options.join("\n");
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const texts = wordings.split("\n");
+    let fitted = -1;
+
+    const fit = () => {
+      const avail = el.clientWidth;
+      if (!avail) return;
+      fitted = avail;
+
+      let text = texts[0];
+      let size = max;
+      for (const candidate of texts) {
+        text = candidate;
+        size = max;
+        el.textContent = candidate;
+        el.style.fontSize = `${max}px`;
+        if (el.scrollWidth > avail) {
+          size = Math.max(min, Math.floor((max * avail) / el.scrollWidth));
+          el.style.fontSize = `${size}px`;
+          while (size > min && el.scrollWidth > avail) {
+            size -= 1;
+            el.style.fontSize = `${size}px`;
+          }
+        }
+        if (el.scrollWidth <= avail) break;
+      }
+
+      // Left on the winner by hand: React has nothing to reconcile when the
+      // winner is what it rendered last, and the node is still holding whatever
+      // the loop measured.
+      el.textContent = text;
+      el.style.fontSize = `${size}px`;
+      setShown({ text, size });
+    };
+
+    fit();
+
+    // Width is the only thing worth refitting on. The box gets shorter every
+    // time the type does, and refitting on that would be refitting on itself.
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth !== fitted) fit();
+    });
+    ro.observe(el.parentElement || el);
+    return () => ro.disconnect();
+  }, [wordings, max, min]);
+
+  return (
+    <h1
+      ref={ref}
+      className={`whitespace-nowrap ${className}`}
+      style={{ ...style, fontSize: shown.size }}
+    >
+      {shown.text}
+    </h1>
   );
 }
 
