@@ -19,7 +19,7 @@ running the app.
 
 ```
 src/main.jsx      entry point; starts the service worker and the update check
-src/App.jsx       the entire UI — one component plus UnplannedRow
+src/App.jsx       the entire UI — one component plus DayRail and the row/dialog parts
 src/storage.js    persistence; the only file that touches a storage API
 src/theme.js      color and font constants
 src/update.js     build id, service worker registration, update check
@@ -113,9 +113,43 @@ alone earned worse, and a day with no entries at all gets nothing. Grades are
 derived at render time — nothing about them is persisted, so old backups load
 unchanged.
 
+A past day opened from the calendar can be corrected or backfilled, and it does
+that against a **draft** rather than writing through the way today does. Today is
+the day you are living: a tap is the record, and it lands in `localStorage`
+immediately. A past day is a reconstruction, so nothing reaches storage until
+Save, leaving with unsaved work asks first, and a draft that ends up empty
+deletes the day's key instead of writing a hollow record — `isEmptyDay` in
+`App.jsx`. Edit mode is its own `history` entry (`{ view: "day", day, edit: true }`)
+so the device's back button leaves it the way the in-app Cancel does; `editRef`
+mirrors the draft synchronously because the `popstate` listener is mounted once
+and can't close over state. A dirty pop is undone by pushing the entry straight
+back and asking instead.
+
+Both screens drive one `DayRail` and one pair of dialogs through `activeKey` /
+`activeRecord`, so every entry control has exactly one implementation. Two things
+differ by day:
+
+- **Timestamps.** A backfilled entry has no clock to read, so it lands at
+  `BACKFILL_TIMES[slot index]` (or `BACKFILL_SNACK` / `BACKFILL_WORKOUT`) on that
+  date via `stampOn`, and the editor opens on top of it — a made-up time you
+  confirm rather than one written behind your back. Cancelling that dialog leaves
+  the entry at its default; Uncheck and Remove sit in the same dialog. Today
+  stamps the live clock and opens nothing.
+- **`planned`.** Today is measured against the current plan. A past day keeps the
+  count it was written with (`plannedBase` backs the workouts out and adds them
+  again), so correcting a day can never rewrite what it was graded against.
+
+Days past `RETENTION_DAYS` can be read but not edited: `persist` trims them on
+every save, so the correction would be thrown away the moment it was written.
+That is why the Edit button is replaced by a line saying so rather than merely
+disabled.
+
 `settings.slots` has no UI. It is edited by hand or by restoring a backup — the
 app is a checklist, and re-cutting the slots mid-history makes the two-week
-strip lie about days that were planned differently.
+strip lie about days that were planned differently. A past day's checks against
+slot ids that no longer exist are invisible in both the read-only view and the
+editor, which both render `slots.map(...)`; the fix is dated plans, not a
+special case here.
 
 ## Deploying
 

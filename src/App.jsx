@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { C, FONT } from "./theme.js";
 import { load, save, clear, exportFile, importFile } from "./storage.js";
 import { BUILD_ID, checkForUpdate } from "./update.js";
@@ -17,6 +17,21 @@ const DEFAULTS = {
 const WORKOUT_LABEL = "Workout Snack";
 const SNACK_LABEL = "Snack";
 
+// Backfilling a past day has no clock to read: the entry happened whenever it
+// happened, and the app wasn't there. So an entry added to a past day lands at
+// the hour its slot usually falls on and the editor opens on top of it, which
+// makes the time something you confirm rather than something invented behind
+// your back. Today is unaffected — it still stamps the live clock, silently.
+const BACKFILL_TIMES = ["08:00", "13:00", "19:00"];
+const BACKFILL_FALLBACK = "12:00";
+const BACKFILL_SNACK = "15:00";
+const BACKFILL_WORKOUT = "17:00";
+
+// Days older than this are trimmed on every save (see `persist`), so a
+// correction to one would be thrown away the moment it was written. The
+// past-day screen refuses to edit them for exactly that reason.
+const RETENTION_DAYS = 400;
+
 // The add buttons carry a 1px dashed edge; the bubbles beside them are filled
 // and have none. They match heights only if the fill keeps the border box the
 // edge would have occupied.
@@ -25,6 +40,21 @@ const SNACK_LABEL = "Snack";
 // pills only lines up while every one of them sets the same type size, and a
 // bubble left to inherit would follow whatever wrapped it later.
 const BUBBLE_EDGE = "1px solid transparent";
+
+// Every row on the rail — meal, snack, workout — is built to one shape, and
+// everything in it centres on the row rather than hanging off the label's first
+// line. A note makes a row half again as tall, and the node is the mark for the
+// whole entry, note included, not for its opening line.
+//
+// It is also what keeps the rail readable. Top-aligning leaves a noted row's
+// node sitting closer to the node above it than to the one below — 72px then
+// 56px, on a rail whose other gaps are all 56. Centring splits the extra height
+// evenly and gets that back to 64.
+const ROW_CLASS =
+  "row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
+const ROW_NODE_CLASS =
+  "node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full";
+const ROW_TIME_CLASS = "text-xs";
 
 // Two drinks fill one circle — Canada's 2023 guidance says not to exceed two on
 // any day, so a full circle is exactly the ceiling and one drink sits visibly
@@ -95,39 +125,51 @@ const dayKey = (d = new Date()) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
+// The grading inputs for one record, without a date attached. The past-day
+// editor grades a draft that isn't in `days` yet, so this is the half of
+// `daySummary` that doesn't need to look a day up.
+const summarize = (r, defaultPlanned) => ({
+  planned: r?.planned ?? defaultPlanned,
+  checks: r ? Object.keys(r.checks || {}).length + (r.workouts || []).length : 0,
+  extra: r ? (r.unplanned || []).length : 0,
+  drinks: r?.drinks || 0,
+});
+
 // The grading inputs for a single date, shared by the two-week strip and the
 // calendar so the same day always earns the same badge in both places. Today
 // is carried in rather than resolved with a fresh `new Date()` here, so a
 // midnight rollover under an open calendar can't grade the day still being
 // written.
 const daySummary = (days, key, defaultPlanned, isToday) => {
-  const r = days[key];
-  const entry = {
-    key,
-    planned: r?.planned ?? defaultPlanned,
-    checks: r ? Object.keys(r.checks || {}).length + (r.workouts || []).length : 0,
-    extra: r ? (r.unplanned || []).length : 0,
-    drinks: r?.drinks || 0,
-    isToday,
-  };
+  const entry = { key, ...summarize(days[key], defaultPlanned), isToday };
   return { ...entry, badge: isToday ? null : dayBadge(entry) };
 };
 
-const shiftDay = (key, delta) => {
+// Local midnight on a day key. Every date the app formats or shifts goes
+// through here, so nothing is ever tempted to parse "YYYY-MM-DD" as UTC.
+const dateAt = (key) => {
   const [y, m, d] = key.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + delta);
+  return new Date(y, m - 1, d);
+};
+
+const shiftDay = (key, delta) => {
+  const dt = dateAt(key);
+  dt.setDate(dt.getDate() + delta);
   return dayKey(dt);
 };
 
-const formatDate = (key) => {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+const formatDate = (key) =>
+  dateAt(key).toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   });
-};
+
+// Short enough for a dialog eyebrow, which is where it says which day the
+// entry under the editor belongs to.
+const formatDateShort = (key) =>
+  dateAt(key).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 
 const clock = (iso) =>
   new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -148,6 +190,36 @@ const fromTimeField = (key, value, iso) => {
   const prev = new Date(iso);
   return new Date(y, m - 1, d, hh, mm, prev.getSeconds(), prev.getMilliseconds()).toISOString();
 };
+
+// The same rebuild for an entry that has no previous timestamp to keep the
+// seconds from: a backfilled entry belongs to the day being edited, not to the
+// moment it was typed in.
+const stampOn = (key, value) => {
+  const [hh, mm] = value.split(":").map(Number);
+  const d = dateAt(key);
+  d.setHours(hh, mm, 0, 0);
+  return d.toISOString();
+};
+
+// A day with nothing on it at all. Saving one of these deletes the key rather
+// than writing a hollow record, so opening a blank day and backing out again
+// leaves storage exactly as it was — the same instinct as writing `undefined`
+// for `drinks` rather than `0`.
+const isEmptyDay = (r) =>
+  !Object.keys(r.checks || {}).length &&
+  !(r.unplanned || []).length &&
+  !(r.workouts || []).length &&
+  !(r.drinks || 0);
+
+// What a day is being measured against, before workouts are added on top.
+// Today answers with the current plan. A past day answers with the count it was
+// written with, so correcting one can never rewrite what it was graded against
+// — and a day with no record at all falls back to today's plan, which is the
+// only answer available when backfilling.
+const plannedBase = (r, slots) =>
+  typeof r?.planned === "number" ? Math.max(0, r.planned - (r.workouts || []).length) : slots.length;
+
+const BLANK_DAY = { checks: {}, notes: {}, unplanned: [], workouts: [] };
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -170,6 +242,16 @@ export default function MealRail() {
   const [selectedDay, setSelectedDay] = useState(() => window.history.state?.day || null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  // A past day is edited against a draft rather than written through on every
+  // tap the way today is. Today is the day you are living: a tap is the record.
+  // A past day is a reconstruction, and a reconstruction wants a Save.
+  const [draft, setDraft] = useState(null);
+  const [dirty, setDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // The popstate listener is mounted once and never re-subscribes, so it can't
+  // close over `draft`. This mirrors it synchronously, which also means the
+  // guard is already down by the time Save's own `history.back()` lands.
+  const editRef = useRef({ active: false, dirty: false, key: null });
   // The month the calendar is showing, as a plain year/month pair rather than
   // a Date — every opening resets this to the current month, and browsing
   // months moves it without touching history.
@@ -218,27 +300,50 @@ export default function MealRail() {
   // behind it. Settings and the calendar both close the same way.
   const goBack = () => window.history.back();
 
+  // Editing a past day is its own history entry, so the device's back button
+  // leaves it the way the in-app Cancel does. With unsaved work on screen that
+  // has to be refused: the pop is undone by pushing the entry straight back,
+  // and the question is asked instead. Save and Discard both take the guard
+  // down before calling `back()`, so their own pop passes straight through.
   useEffect(() => {
     const onPop = (e) => {
+      if (editRef.current.active && !e.state?.edit) {
+        if (editRef.current.dirty) {
+          window.history.pushState({ view: "day", day: editRef.current.key, edit: true }, "");
+          setConfirmDiscard(true);
+          return;
+        }
+        editRef.current = { active: false, dirty: false, key: null };
+        setDraft(null);
+        setDirty(false);
+      }
       const v = e.state?.view;
       setSelectedDay(v === "day" ? e.state?.day || null : null);
       setView(v === "settings" || v === "calendar" || v === "day" ? v : "today");
       setConfirmClearOpen(false);
+      setEditing(null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   // Escape leaves settings, the calendar, or a past day, the way it leaves a
-  // dialog. A past day returns to the calendar that opened it.
+  // dialog. A past day returns to the calendar that opened it, and a past day
+  // being edited asks first if there is anything to lose.
+  //
+  // A dialog on top owns Escape outright: it listens too, and without this the
+  // one press would close the dialog and walk out of the screen behind it.
   useEffect(() => {
     if (view !== "settings" && view !== "calendar" && view !== "day") return;
     const onKey = (e) => {
-      if (e.key === "Escape") goBack();
+      if (e.key !== "Escape") return;
+      if (editing || confirmDiscard || confirmClearOpen) return;
+      if (draft) cancelEdit();
+      else goBack();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [view]);
+  }, [view, editing, confirmDiscard, confirmClearOpen, draft]);
 
   // Roll over at midnight / on refocus
   useEffect(() => {
@@ -254,7 +359,7 @@ export default function MealRail() {
   const persist = useCallback(async (nextSettings, nextDays) => {
     setSaving(true);
     const trimmed = {};
-    const cutoff = shiftDay(dayKey(), -400);
+    const cutoff = shiftDay(dayKey(), -RETENTION_DAYS);
     Object.keys(nextDays).forEach((k) => {
       if (k >= cutoff) trimmed[k] = nextDays[k];
     });
@@ -263,22 +368,35 @@ export default function MealRail() {
     setSaving(false);
   }, []);
 
-  const record = days[today] || { checks: {}, notes: {}, unplanned: [], workouts: [] };
-
   const slots = settings.slots;
+
+  // The day every entry control below writes to. Today unless a past day is
+  // open in the editor, in which case it is that day's draft — which is what
+  // lets one set of handlers, one rail, and one pair of dialogs serve both.
+  const editingPast = !!draft;
+  const activeKey = draft ? draft.key : today;
+  const activeRecord = draft ? draft.record : days[today] || BLANK_DAY;
 
   // A workout snack arrives already checked, so it raises `planned` and the
   // day's check count by one together: it can never cost the day a grade, and it
   // can never cover for a meal that went unchecked.
   const writeDay = (patch) => {
-    const next = { ...days, [today]: { ...record, ...patch } };
+    const next = { ...activeRecord, ...patch };
     // `in` rather than a fallback: removing the last workout patches the key to
     // undefined so it drops out of the JSON, and `??` would read that as "not
     // being changed" and leave the day planning a slot that no longer exists.
-    const workouts = ("workouts" in patch ? patch.workouts : record.workouts) || [];
-    next[today].planned = settings.slots.length + workouts.length;
-    setDays(next);
-    persist(settings, next);
+    const workouts = ("workouts" in patch ? patch.workouts : activeRecord.workouts) || [];
+    next.planned = (editingPast ? plannedBase(activeRecord, slots) : slots.length) + workouts.length;
+
+    if (editingPast) {
+      editRef.current.dirty = true;
+      setDirty(true);
+      setDraft({ key: activeKey, record: next });
+      return;
+    }
+    const nextDays = { ...days, [today]: next };
+    setDays(nextDays);
+    persist(settings, nextDays);
   };
 
   const writeSettings = (next) => {
@@ -286,36 +404,60 @@ export default function MealRail() {
     persist(next, days);
   };
 
-  const check = (id) => writeDay({ checks: { ...record.checks, [id]: new Date().toISOString() } });
+  // A backfilled entry has no clock to read, so it lands at its slot's usual
+  // hour and hands the editor straight over. Cancelling that editor leaves the
+  // entry at the default — Uncheck and Remove sit in the same dialog and are
+  // the way to take one back.
+  const backfilling = (kind, id, label, patch) => {
+    writeDay(patch);
+    if (editingPast) setEditing({ kind, id, label });
+  };
+
+  const check = (slot, index) =>
+    backfilling("slot", slot.id, slot.label, {
+      checks: {
+        ...activeRecord.checks,
+        [slot.id]: editingPast
+          ? stampOn(activeKey, BACKFILL_TIMES[index] || BACKFILL_FALLBACK)
+          : new Date().toISOString(),
+      },
+    });
 
   const uncheck = (id) => {
-    const checks = { ...record.checks };
-    const notes = { ...(record.notes || {}) };
+    const checks = { ...activeRecord.checks };
+    const notes = { ...(activeRecord.notes || {}) };
     delete checks[id];
     delete notes[id];
     writeDay({ checks, notes });
   };
 
   const editCheck = (id, { time, note }) => {
-    const notes = { ...(record.notes || {}) };
+    const notes = { ...(activeRecord.notes || {}) };
     if (note) notes[id] = note;
     else delete notes[id];
     writeDay({
-      checks: { ...record.checks, [id]: fromTimeField(today, time, record.checks[id]) },
+      checks: { ...activeRecord.checks, [id]: fromTimeField(activeKey, time, activeRecord.checks[id]) },
       notes,
     });
   };
 
-  const addUnplanned = () =>
-    writeDay({ unplanned: [...(record.unplanned || []), { id: uid(), t: new Date().toISOString() }] });
+  const addUnplanned = () => {
+    const id = uid();
+    backfilling("unplanned", id, SNACK_LABEL, {
+      unplanned: [
+        ...(activeRecord.unplanned || []),
+        { id, t: editingPast ? stampOn(activeKey, BACKFILL_SNACK) : new Date().toISOString() },
+      ],
+    });
+  };
 
   const removeUnplanned = (id) =>
-    writeDay({ unplanned: (record.unplanned || []).filter((u) => u.id !== id) });
+    writeDay({ unplanned: (activeRecord.unplanned || []).filter((u) => u.id !== id) });
 
   const editUnplanned = (id, { time, note }) =>
     writeDay({
-      unplanned: (record.unplanned || []).map((u) =>
-        u.id === id ? { ...u, t: fromTimeField(today, time, u.t), note: note || undefined } : u
+      unplanned: (activeRecord.unplanned || []).map((u) =>
+        u.id === id ? { ...u, t: fromTimeField(activeKey, time, u.t), note: note || undefined } : u
       ),
     });
 
@@ -324,51 +466,69 @@ export default function MealRail() {
   // One a day: the list stays a list because that is what the rail and the
   // migration already read, but only ever holds the one.
   const addWorkout = () => {
-    if ((record.workouts || []).length) return;
-    writeDay({ workouts: [{ id: uid(), t: new Date().toISOString() }] });
+    if ((activeRecord.workouts || []).length) return;
+    const id = uid();
+    backfilling("workout", id, WORKOUT_LABEL, {
+      workouts: [
+        { id, t: editingPast ? stampOn(activeKey, BACKFILL_WORKOUT) : new Date().toISOString() },
+      ],
+    });
   };
 
   const removeWorkout = (id) => {
-    const left = (record.workouts || []).filter((w) => w.id !== id);
+    const left = (activeRecord.workouts || []).filter((w) => w.id !== id);
     writeDay({ workouts: left.length ? left : undefined });
   };
 
   const editWorkout = (id, { time, note }) =>
     writeDay({
-      workouts: (record.workouts || []).map((w) =>
-        w.id === id ? { ...w, t: fromTimeField(today, time, w.t), note: note || undefined } : w
+      workouts: (activeRecord.workouts || []).map((w) =>
+        w.id === id ? { ...w, t: fromTimeField(activeKey, time, w.t), note: note || undefined } : w
       ),
     });
 
-  const addDrink = () => writeDay({ drinks: (record.drinks || 0) + 1 });
+  const addDrink = () => writeDay({ drinks: (activeRecord.drinks || 0) + 1 });
 
   // undefined rather than 0 so the key drops out of the JSON entirely and days
   // without drinks stay as small as they were before this existed.
   const setDrinkCount = (n) => writeDay({ drinks: n > 0 ? n : undefined });
 
-  const unplanned = record.unplanned || [];
-  const workouts = record.workouts || [];
-  const drinks = record.drinks || 0;
+  // Opening the editor is its own history entry, so the device's back button
+  // and the in-app Cancel leave it by the same door.
+  const startEdit = (key) => {
+    editRef.current = { active: true, dirty: false, key };
+    setDraft({ key, record: days[key] || BLANK_DAY });
+    setDirty(false);
+    window.history.pushState({ view: "day", day: key, edit: true }, "");
+  };
 
-  // Place each off-slot entry after however many meals were already checked when
-  // it happened. Snacks and workouts share the rail, so they are positioned
-  // together and then ordered by clock within a position.
-  const extrasAt = useMemo(() => {
-    const map = {};
-    [
-      ...unplanned.map((e) => ({ kind: "unplanned", e })),
-      ...workouts.map((e) => ({ kind: "workout", e })),
-    ].forEach((item) => {
-      let pos = 0;
-      slots.forEach((s) => {
-        const t = record.checks[s.id];
-        if (t && t <= item.e.t) pos += 1;
-      });
-      (map[pos] = map[pos] || []).push(item);
-    });
-    Object.values(map).forEach((list) => list.sort((a, b) => a.e.t.localeCompare(b.e.t)));
-    return map;
-  }, [unplanned, workouts, slots, record.checks]);
+  // Drops the guard before walking back, so the pop this causes is let through
+  // rather than turned into another question.
+  const leaveEdit = () => {
+    editRef.current = { active: false, dirty: false, key: null };
+    setDraft(null);
+    setDirty(false);
+    setEditing(null);
+    setConfirmDiscard(false);
+    window.history.back();
+  };
+
+  const cancelEdit = () => {
+    if (editRef.current.dirty) setConfirmDiscard(true);
+    else leaveEdit();
+  };
+
+  const saveEdit = () => {
+    const nextDays = { ...days };
+    // A day left with nothing on it loses its key rather than keeping a hollow
+    // record: opening a blank day and saving it unchanged has to be a no-op.
+    if (isEmptyDay(draft.record)) delete nextDays[draft.key];
+    else nextDays[draft.key] = draft.record;
+    setDays(nextDays);
+    persist(settings, nextDays);
+    setNotice(`Saved ${formatDateShort(draft.key)}`);
+    leaveEdit();
+  };
 
   const history = useMemo(() => {
     const out = [];
@@ -416,32 +576,99 @@ export default function MealRail() {
     ? daySummary(days, selectedDay, settings.slots.length, false)
     : null;
 
+  // The draft's grade, recomputed as it is edited, so a correction shows what
+  // it does to the day before it is committed.
+  const draftGrade = draft ? dayBadge(summarize(draft.record, slots.length)) : null;
+
   const weekExtras = history.slice(7).reduce((a, d) => a + d.extra, 0);
   const weekDrinks = history.slice(7).reduce((a, d) => a + d.drinks, 0);
 
-  const dateLabel = useMemo(() => {
-    const [y, m, d] = today.split("-").map(Number);
-    return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    });
-  }, [today]);
+  const dateLabel = useMemo(
+    () =>
+      dateAt(today).toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      }),
+    [today]
+  );
 
   // Resolved from the record rather than captured when the row was tapped, so
   // a midnight rollover under an open dialog closes it instead of writing to a
   // day that is no longer on screen.
   const editTarget = useMemo(() => {
     if (!editing) return null;
-    if (editing.kind === "drinks") return drinks > 0 ? { count: drinks } : null;
-    if (editing.kind === "slot") {
-      const t = record.checks[editing.id];
-      return t ? { time: toTimeField(t), note: (record.notes || {})[editing.id] } : null;
+    if (editing.kind === "drinks") {
+      const n = activeRecord.drinks || 0;
+      return n > 0 ? { count: n } : null;
     }
-    const list = editing.kind === "workout" ? workouts : unplanned;
+    if (editing.kind === "slot") {
+      const t = (activeRecord.checks || {})[editing.id];
+      return t ? { time: toTimeField(t), note: (activeRecord.notes || {})[editing.id] } : null;
+    }
+    const list = (editing.kind === "workout" ? activeRecord.workouts : activeRecord.unplanned) || [];
     const e = list.find((x) => x.id === editing.id);
     return e ? { time: toTimeField(e.t), note: e.note } : null;
-  }, [editing, record, unplanned, workouts, drinks]);
+  }, [editing, activeRecord]);
+
+  // One rail, one set of handlers, whichever day is open.
+  const railProps = {
+    record: activeRecord,
+    slots,
+    trainingEnabled: settings.trainingEnabled,
+    onCheck: check,
+    onAddSnack: addUnplanned,
+    onAddWorkout: addWorkout,
+    onAddDrink: addDrink,
+    onEdit: setEditing,
+  };
+
+  // The entry editors, shared by today and the past-day editor. On a past day
+  // they carry the date in their eyebrow, so which day is being written to
+  // stays legible under a modal that covers the header saying so.
+  const entryDialogs = (
+    <>
+      {editing && editTarget && editing.kind === "drinks" && (
+        <DrinkDialog
+          count={editTarget.count}
+          eyebrow={editingPast ? `Editing · ${formatDateShort(activeKey)}` : undefined}
+          onClose={() => setEditing(null)}
+          onSave={(n) => {
+            setDrinkCount(n);
+            setEditing(null);
+          }}
+          onClear={() => {
+            setDrinkCount(0);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {editing && editTarget && editing.kind !== "drinks" && (
+        <EditDialog
+          key={editing.id}
+          title={editing.label}
+          eyebrow={editingPast ? `Editing · ${formatDateShort(activeKey)}` : undefined}
+          time={editTarget.time}
+          note={editTarget.note}
+          removeLabel={editing.kind === "slot" ? "Uncheck" : "Remove"}
+          onClose={() => setEditing(null)}
+          onSave={(patch) => {
+            if (editing.kind === "slot") editCheck(editing.id, patch);
+            else if (editing.kind === "workout") editWorkout(editing.id, patch);
+            else editUnplanned(editing.id, patch);
+            setEditing(null);
+          }}
+          onRemove={() => {
+            if (editing.kind === "slot") uncheck(editing.id);
+            else if (editing.kind === "workout") removeWorkout(editing.id);
+            else removeUnplanned(editing.id);
+            setEditing(null);
+          }}
+        />
+      )}
+    </>
+  );
 
   if (!ready) {
     return (
@@ -669,61 +896,53 @@ export default function MealRail() {
   }
 
   if (view === "day" && selectedDay && selectedDay < today) {
+    if (draft) {
+      return (
+        <PastDayEditor
+          dateKey={draft.key}
+          grade={draftGrade}
+          dirty={dirty}
+          railProps={railProps}
+          onCancel={cancelEdit}
+          onSave={saveEdit}
+          status={<StatusLine saveError={saveError} notice={notice} saving={saving} />}
+          overlay={
+            <>
+              {entryDialogs}
+              {confirmDiscard && (
+                <ConfirmDialog
+                  title="Discard changes"
+                  eyebrow="Unsaved changes"
+                  message={`Your edits to ${formatDate(draft.key)} haven't been saved yet. Leaving now loses them.`}
+                  confirmLabel="Discard"
+                  // Not the arming pause "erase everything" gets: this loses one
+                  // day's edits, and the work it guards is still on screen behind it.
+                  armMs={0}
+                  onClose={() => setConfirmDiscard(false)}
+                  onConfirm={leaveEdit}
+                />
+              )}
+            </>
+          }
+        />
+      );
+    }
     return (
       <PastDay
         dateKey={selectedDay}
         record={selectedDayRecord}
         slots={slots}
         summary={selectedDaySummary}
+        editable={selectedDay >= shiftDay(today, -RETENTION_DAYS)}
+        onEdit={() => startEdit(selectedDay)}
         onBack={goBack}
+        status={<StatusLine saveError={saveError} notice={notice} saving={saving} />}
       />
     );
   }
 
   return (
-    <Screen
-      overlay={
-        <>
-          {editing && editTarget && editing.kind === "drinks" && (
-            <DrinkDialog
-              count={editTarget.count}
-              onClose={() => setEditing(null)}
-              onSave={(n) => {
-                setDrinkCount(n);
-                setEditing(null);
-              }}
-              onClear={() => {
-                setDrinkCount(0);
-                setEditing(null);
-              }}
-            />
-          )}
-
-          {editing && editTarget && editing.kind !== "drinks" && (
-            <EditDialog
-              key={editing.id}
-              title={editing.label}
-              time={editTarget.time}
-              note={editTarget.note}
-              removeLabel={editing.kind === "slot" ? "Uncheck" : "Remove"}
-              onClose={() => setEditing(null)}
-              onSave={(patch) => {
-                if (editing.kind === "slot") editCheck(editing.id, patch);
-                else if (editing.kind === "workout") editWorkout(editing.id, patch);
-                else editUnplanned(editing.id, patch);
-                setEditing(null);
-              }}
-              onRemove={() => {
-                if (editing.kind === "slot") uncheck(editing.id);
-                else if (editing.kind === "workout") removeWorkout(editing.id);
-                else removeUnplanned(editing.id);
-                setEditing(null);
-              }}
-            />
-          )}
-        </>
-      }
-    >
+    <Screen overlay={entryDialogs}>
       {/* Header */}
       <header className="flex items-start justify-between gap-4">
         <div>
@@ -757,174 +976,7 @@ export default function MealRail() {
         </div>
       </header>
 
-      {/* The rail */}
-      <section className="relative mt-6">
-        <div className="relative">
-          {/* vertical line */}
-          <div
-            className="absolute left-[19.5px] top-3 bottom-3 w-px"
-            style={{ background: C.rail }}
-            aria-hidden="true"
-          />
-
-          <ul className="flex flex-col gap-1">
-            <ExtraRows items={extrasAt[0]} onEdit={setEditing} />
-            {slots.map((s, i) => {
-              const t = record.checks[s.id];
-              const note = (record.notes || {})[s.id];
-              return (
-                // The extras that follow a meal live inside its <li>, so the
-                // list's own gap can't reach them — it repeats here, and every
-                // row on the rail ends up the same distance apart.
-                <li key={s.id} className="flex flex-col gap-1">
-                  <button
-                    // A checked row opens the editor rather than clearing
-                    // itself — undoing a meal shouldn't be one stray tap away.
-                    onClick={() =>
-                      t ? setEditing({ kind: "slot", id: s.id, label: s.label }) : check(s.id)
-                    }
-                    aria-pressed={!!t}
-                    aria-label={t ? `Edit ${s.label}` : `Check off ${s.label}`}
-                    className="row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                    style={{ background: t ? C.surface : "transparent" }}
-                  >
-                    <span
-                      className="node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-                      style={{
-                        background: t ? C.done : C.ground,
-                        border: `1px solid ${t ? C.done : C.rail}`,
-                        transform: t ? "scale(1)" : "scale(0.82)",
-                      }}
-                    >
-                      {t && (
-                        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-                          <path
-                            d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
-                            fill="none"
-                            stroke={C.ground}
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className="block text-lg"
-                        style={{
-                          fontFamily: FONT.display,
-                          color: t ? C.chalk : C.muted,
-                        }}
-                      >
-                        {s.label}
-                      </span>
-                      {note && (
-                        <span className="block truncate text-xs" style={{ color: C.muted }}>
-                          {note}
-                        </span>
-                      )}
-                    </span>
-                    <span
-                      className={`text-xs${t ? " pr-1" : ""}`}
-                      style={{
-                        color: t ? C.done : C.rail,
-                        fontFamily: FONT.mono,
-                      }}
-                    >
-                      {t ? clock(t) : "—"}
-                    </span>
-                  </button>
-
-                  <ExtraRows items={extrasAt[i + 1]} onEdit={setEditing} />
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        {/* The two things a day picks up off-plan, side by side and equally
-            weighted — the rail above is what was planned, this row is what
-            wasn't. Neither is wide enough for a sentence, hence the glyph.
-            No left inset: the row spans the full width, so anything on one
-            side only would take its seam off the centre line and out of step
-            with the drinks row below. */}
-        <div className="mt-4 flex items-stretch gap-2">
-          <AddButton onClick={addUnplanned} color={C.brass} label={SNACK_LABEL} />
-          {settings.trainingEnabled && (
-            <AddButton
-              onClick={addWorkout}
-              color={C.done}
-              label={WORKOUT_LABEL}
-              done={workouts.length > 0}
-            />
-          )}
-        </div>
-
-        {/* Tapping the pill only ever adds. The count beside it is the one way
-            down again, so a stray tap can't undo a night's worth of counting.
-
-            Two half-width tracks that meet in the middle, the near one packed
-            right and the far one packed left. Centring the pair instead would
-            put the seam wherever the count's width happened to leave it; this
-            way the gap lands on the centre line and stays there as the count
-            grows, in the same place as the gap in the row above. */}
-        <div className="mt-3 flex items-center gap-2">
-          <div className="flex flex-1 justify-end">
-            {/* Sized rather than grown: filling its half would leave the seam
-                correct but the button far wider than the count beside it. */}
-            <AddButton onClick={addDrink} color={C.red} label="Drink" grow={false} width="9.5rem" />
-          </div>
-          <div className="flex flex-1 justify-start">
-          {drinks > 0 ? (
-            <button
-              onClick={() => setEditing({ kind: "drinks", id: "drinks", label: "Drinks" })}
-              aria-label={`Edit drinks — ${drinks} logged`}
-              className="flex items-center gap-2 rounded-full px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: C.surface, border: BUBBLE_EDGE }}
-            >
-              <span className="flex items-center gap-[3px]" aria-hidden="true">
-                {drinkCircles(drinks)
-                  .slice(0, DRINK_DOTS_MAX)
-                  .map((fill, i) => (
-                    <DrinkDot key={i} size={10} fill={fill} />
-                  ))}
-              </span>
-              <span style={{ color: C.chalk, fontFamily: FONT.mono }}>{drinks}</span>
-            </button>
-          ) : (
-            // Not a control — there is nothing to edit about none — so it is a
-            // plain bubble holding the standing answer to what the button asks.
-            <span
-              role="img"
-              aria-label="No drinks logged today"
-              className="flex items-center gap-2 rounded-full px-3 py-2 text-base"
-              style={{ background: C.surface, border: BUBBLE_EDGE }}
-            >
-              <span
-                className="flex h-4 w-4 items-center justify-center rounded-full"
-                style={{ background: C.done }}
-                aria-hidden="true"
-              >
-                <svg width="10" height="10" viewBox="0 0 12 12">
-                  <path
-                    d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
-                    fill="none"
-                    stroke={C.ground}
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span aria-hidden="true" style={{ color: C.chalk, fontFamily: FONT.mono }}>
-                None
-              </span>
-            </span>
-          )}
-          </div>
-        </div>
-      </section>
+      <DayRail {...railProps} />
 
       {/* History. mt-auto takes up whatever the rail leaves over, so a short
           day puts the slack above this strip instead of below it. */}
@@ -991,6 +1043,207 @@ export default function MealRail() {
   );
 }
 
+// The rail and the two rows of controls under it: everything you do to a day,
+// whichever day it is. Today writes through it on every tap; the past-day
+// editor points it at a draft. Neither knows which, which is the point — the
+// screen that wraps it decides where a patch lands.
+function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWorkout, onAddDrink, onEdit }) {
+  const checks = record.checks || {};
+  const notes = record.notes || {};
+  const workouts = record.workouts || [];
+  const drinks = record.drinks || 0;
+
+  // Place each off-slot entry after however many meals were already checked when
+  // it happened. Snacks and workouts share the rail, so they are positioned
+  // together and then ordered by clock within a position.
+  const extrasAt = useMemo(() => {
+    const map = {};
+    [
+      ...(record.unplanned || []).map((e) => ({ kind: "unplanned", e })),
+      ...(record.workouts || []).map((e) => ({ kind: "workout", e })),
+    ].forEach((item) => {
+      let pos = 0;
+      slots.forEach((s) => {
+        const t = (record.checks || {})[s.id];
+        if (t && t <= item.e.t) pos += 1;
+      });
+      (map[pos] = map[pos] || []).push(item);
+    });
+    Object.values(map).forEach((list) => list.sort((a, b) => a.e.t.localeCompare(b.e.t)));
+    return map;
+  }, [record, slots]);
+
+  return (
+    <section className="relative mt-6">
+      <div className="relative">
+        {/* vertical line */}
+        <div
+          className="absolute left-[19.5px] top-3 bottom-3 w-px"
+          style={{ background: C.rail }}
+          aria-hidden="true"
+        />
+
+        <ul className="flex flex-col gap-1">
+          <ExtraRows items={extrasAt[0]} onEdit={onEdit} />
+          {slots.map((s, i) => {
+            const t = checks[s.id];
+            const note = notes[s.id];
+            return (
+              // The extras that follow a meal live inside its <li>, so the
+              // list's own gap can't reach them — it repeats here, and every
+              // row on the rail ends up the same distance apart.
+              <li key={s.id} className="flex flex-col gap-1">
+                <button
+                  // A checked row opens the editor rather than clearing
+                  // itself — undoing a meal shouldn't be one stray tap away.
+                  onClick={() =>
+                    t ? onEdit({ kind: "slot", id: s.id, label: s.label }) : onCheck(s, i)
+                  }
+                  aria-pressed={!!t}
+                  aria-label={t ? `Edit ${s.label}` : `Check off ${s.label}`}
+                  className={ROW_CLASS}
+                  style={{ background: t ? C.surface : "transparent" }}
+                >
+                  <span
+                    className={ROW_NODE_CLASS}
+                    style={{
+                      background: t ? C.done : C.ground,
+                      border: `1px solid ${t ? C.done : C.rail}`,
+                      transform: t ? "scale(1)" : "scale(0.82)",
+                    }}
+                  >
+                    {t && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                        <path
+                          d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
+                          fill="none"
+                          stroke={C.ground}
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className="block text-lg"
+                      style={{
+                        fontFamily: FONT.display,
+                        color: t ? C.chalk : C.muted,
+                      }}
+                    >
+                      {s.label}
+                    </span>
+                    {note && (
+                      <span className="block truncate text-xs" style={{ color: C.muted }}>
+                        {note}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={`${ROW_TIME_CLASS}${t ? " pr-1" : ""}`}
+                    style={{
+                      color: t ? C.done : C.rail,
+                      fontFamily: FONT.mono,
+                    }}
+                  >
+                    {t ? clock(t) : "—"}
+                  </span>
+                </button>
+
+                <ExtraRows items={extrasAt[i + 1]} onEdit={onEdit} />
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {/* The two things a day picks up off-plan, side by side and equally
+          weighted — the rail above is what was planned, this row is what
+          wasn't. Neither is wide enough for a sentence, hence the glyph.
+          No left inset: the row spans the full width, so anything on one
+          side only would take its seam off the centre line and out of step
+          with the drinks row below. */}
+      <div className="mt-4 flex items-stretch gap-2">
+        <AddButton onClick={onAddSnack} color={C.brass} label={SNACK_LABEL} />
+        {trainingEnabled && (
+          <AddButton
+            onClick={onAddWorkout}
+            color={C.done}
+            label={WORKOUT_LABEL}
+            done={workouts.length > 0}
+          />
+        )}
+      </div>
+
+      {/* Tapping the pill only ever adds. The count beside it is the one way
+          down again, so a stray tap can't undo a night's worth of counting.
+
+          Two half-width tracks that meet in the middle, the near one packed
+          right and the far one packed left. Centring the pair instead would
+          put the seam wherever the count's width happened to leave it; this
+          way the gap lands on the centre line and stays there as the count
+          grows, in the same place as the gap in the row above. */}
+      <div className="mt-3 flex items-center gap-2">
+        <div className="flex flex-1 justify-end">
+          {/* Sized rather than grown: filling its half would leave the seam
+              correct but the button far wider than the count beside it. */}
+          <AddButton onClick={onAddDrink} color={C.red} label="Drink" grow={false} width="9.5rem" />
+        </div>
+        <div className="flex flex-1 justify-start">
+        {drinks > 0 ? (
+          <button
+            onClick={() => onEdit({ kind: "drinks", id: "drinks", label: "Drinks" })}
+            aria-label={`Edit drinks — ${drinks} logged`}
+            className="flex items-center gap-2 rounded-full px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.surface, border: BUBBLE_EDGE }}
+          >
+            <span className="flex items-center gap-[3px]" aria-hidden="true">
+              {drinkCircles(drinks)
+                .slice(0, DRINK_DOTS_MAX)
+                .map((fill, i) => (
+                  <DrinkDot key={i} size={10} fill={fill} />
+                ))}
+            </span>
+            <span style={{ color: C.chalk, fontFamily: FONT.mono }}>{drinks}</span>
+          </button>
+        ) : (
+          // Not a control — there is nothing to edit about none — so it is a
+          // plain bubble holding the standing answer to what the button asks.
+          <span
+            role="img"
+            aria-label="No drinks logged"
+            className="flex items-center gap-2 rounded-full px-3 py-2 text-base"
+            style={{ background: C.surface, border: BUBBLE_EDGE }}
+          >
+            <span
+              className="flex h-4 w-4 items-center justify-center rounded-full"
+              style={{ background: C.done }}
+              aria-hidden="true"
+            >
+              <svg width="10" height="10" viewBox="0 0 12 12">
+                <path
+                  d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
+                  fill="none"
+                  stroke={C.ground}
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <span aria-hidden="true" style={{ color: C.chalk, fontFamily: FONT.mono }}>
+              None
+            </span>
+          </span>
+        )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // The dashed outline is the shared shape of "add something to today"; the colour
 // is the only thing that says which something, and it matches the mark the entry
 // leaves on the rail.
@@ -1046,7 +1299,7 @@ function ExtraRows({ items, onEdit }) {
   );
 }
 
-function PastDay({ dateKey, record, slots, summary, onBack }) {
+function PastDay({ dateKey, record, slots, summary, editable, onEdit, onBack, status }) {
   const checks = record?.checks || {};
   const notes = record?.notes || {};
   const snacks = record?.unplanned || [];
@@ -1065,7 +1318,7 @@ function PastDay({ dateKey, record, slots, summary, onBack }) {
         >
           <IconBack color={C.chalk} />
         </button>
-        <div>
+        <div className="min-w-0 flex-1">
           <p
             className="text-xs uppercase tracking-widest"
             style={{ color: C.muted, fontFamily: FONT.mono }}
@@ -1076,26 +1329,28 @@ function PastDay({ dateKey, record, slots, summary, onBack }) {
             {formatDate(dateKey)}
           </h1>
         </div>
+        {editable && (
+          <button
+            onClick={onEdit}
+            aria-label={`Edit ${formatDate(dateKey)}`}
+            className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.surface }}
+          >
+            <IconPencil color={C.muted} />
+          </button>
+        )}
       </header>
 
-      <section
-        className="mt-6 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
-        style={{ background: C.surface }}
-        aria-label={`Grade: ${grade ? BADGE_LABEL[grade] : "No grade"}`}
-      >
-        <div>
-          <p
-            className="text-xs uppercase tracking-widest"
-            style={{ color: C.muted, fontFamily: FONT.mono }}
-          >
-            Grade
-          </p>
-          <p className="mt-1 text-lg" style={{ fontFamily: FONT.display }}>
-            {grade ? BADGE_LABEL[grade] : "No grade"}
-          </p>
-        </div>
-        {grade && <DayBadge tier={grade} size={22} />}
-      </section>
+      {/* A day past the retention window is about to be trimmed away, so
+          offering to correct it would be offering to write into a bin. */}
+      {!editable && (
+        <p className="mt-4 text-sm" style={{ color: C.muted }}>
+          Meal Rail keeps {RETENTION_DAYS} days. This one is older than that, so it can no longer
+          be edited.
+        </p>
+      )}
+
+      <GradeCard grade={grade} />
 
       <PastDaySection title="Meals">
         <div className="flex flex-col gap-2">
@@ -1165,7 +1420,87 @@ function PastDay({ dateKey, record, slots, summary, onBack }) {
           )}
         </div>
       </PastDaySection>
+
+      <div className="mt-auto pt-4">{status}</div>
     </Screen>
+  );
+}
+
+// The same day, opened for correction: the rail the today view uses, pointed at
+// a date that has already been and gone. Nothing here writes through — the
+// draft it edits lives upstairs and only reaches storage on Save — so the
+// screen has to say, loudly and continuously, which day it is holding.
+function PastDayEditor({ dateKey, grade, dirty, railProps, onCancel, onSave, status, overlay }) {
+  return (
+    <Screen overlay={overlay}>
+      <header
+        className="rounded-xl px-4 py-3"
+        style={{ background: C.surfaceBrass, borderLeft: `3px solid ${C.brass}` }}
+      >
+        <p
+          className="text-xs uppercase tracking-widest"
+          style={{ color: C.brass, fontFamily: FONT.mono }}
+        >
+          Editing{dirty ? " · Unsaved changes" : ""}
+        </p>
+        <h1 className="mt-1 text-2xl leading-tight" style={{ fontFamily: FONT.display }}>
+          {formatDate(dateKey)}
+        </h1>
+      </header>
+
+      {/* Under the band rather than beside it: the date is long enough that a
+          pair of buttons on the same line would crowd it off its own screen. */}
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: "transparent", color: C.muted }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={onSave}
+          className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: C.done, color: C.ground }}
+        >
+          Save
+        </button>
+      </div>
+
+      {/* Recomputed from the draft, so the day's verdict moves as it is
+          corrected and you can see what a change costs before committing it. */}
+      <GradeCard grade={grade} />
+
+      <DayRail {...railProps} />
+
+      <div className="mt-auto pt-4">{status}</div>
+    </Screen>
+  );
+}
+
+// The day's verdict, stated in words rather than left to an 11px glyph. Shared
+// by the read-only past day and the editor so a correction's effect is shown in
+// exactly the terms the day was judged in.
+function GradeCard({ grade }) {
+  return (
+    <section
+      className="mt-6 flex items-center justify-between gap-4 rounded-xl px-4 py-3"
+      style={{ background: C.surface }}
+      aria-label={`Grade: ${grade ? BADGE_LABEL[grade] : "No grade"}`}
+    >
+      <div>
+        <p
+          className="text-xs uppercase tracking-widest"
+          style={{ color: C.muted, fontFamily: FONT.mono }}
+        >
+          Grade
+        </p>
+        <p className="mt-1 text-lg" style={{ fontFamily: FONT.display }} aria-live="polite">
+          {grade ? BADGE_LABEL[grade] : "No grade"}
+        </p>
+      </div>
+      {grade && <DayBadge tier={grade} size={22} />}
+    </section>
   );
 }
 
@@ -1183,11 +1518,16 @@ function PastDaySection({ title, children }) {
   );
 }
 
+// Centred on the card the same way a rail row is centred on itself, and for the
+// same reason: the tick answers for the whole entry, not for its first line.
+// This card once mixed the two — an `items-start` row with a top-aligned tick
+// and a `self-center` time — which read as the time sagging away from the label
+// beside it the moment a note appeared.
 function PastEntry({ label, time, note, tone, checked = false }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: C.surface }}>
+    <div className="flex items-center gap-3 rounded-xl px-4 py-3" style={{ background: C.surface }}>
       <span
-        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
         style={{ background: checked ? tone : "transparent", border: `1px solid ${tone}` }}
         aria-hidden="true"
       >
@@ -1204,7 +1544,7 @@ function PastEntry({ label, time, note, tone, checked = false }) {
         )}
       </span>
       <span
-        className="self-center shrink-0 text-xs"
+        className="shrink-0 text-xs"
         style={{ color: time ? tone : C.rail, fontFamily: FONT.mono }}
       >
         {time ? clock(time) : "—"}
@@ -1229,11 +1569,11 @@ function WorkoutRow({ w, onEdit }) {
     <button
       onClick={() => onEdit({ kind: "workout", id: w.id, label: WORKOUT_LABEL })}
       aria-label={`Edit this ${WORKOUT_LABEL.toLowerCase()}`}
-      className="row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      className={ROW_CLASS}
       style={{ background: C.surface }}
     >
       <span
-        className="node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+        className={ROW_NODE_CLASS}
         style={{
           background: C.done,
           border: `1px solid ${C.done}`,
@@ -1261,7 +1601,7 @@ function WorkoutRow({ w, onEdit }) {
         )}
       </span>
       <span
-        className="pr-1 text-xs"
+        className={`${ROW_TIME_CLASS} pr-1`}
         style={{
           color: C.done,
           fontFamily: FONT.mono,
@@ -1282,11 +1622,11 @@ function UnplannedRow({ u, onEdit }) {
     <button
       onClick={() => onEdit({ kind: "unplanned", id: u.id, label: SNACK_LABEL })}
       aria-label={`Edit this ${SNACK_LABEL.toLowerCase()}`}
-      className="row flex w-full items-center gap-4 rounded-xl px-2 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      className={ROW_CLASS}
       style={{ background: C.surfaceBrass }}
     >
       <span
-        className="node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+        className={ROW_NODE_CLASS}
         style={{
           background: C.brass,
           border: `1px solid ${C.brass}`,
@@ -1313,7 +1653,7 @@ function UnplannedRow({ u, onEdit }) {
         )}
       </span>
       <span
-        className="text-xs"
+        className={ROW_TIME_CLASS}
         style={{
           color: C.brass,
           fontFamily: FONT.mono,
@@ -1415,6 +1755,23 @@ function IconCalendar({ color }) {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="3.5" y="5" width="17" height="15" rx="2" stroke={color} strokeWidth="1.7" />
       <path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// The way in to correcting a past day, drawn to the same weight as the calendar
+// and settings icons the today header carries.
+function IconPencil({ color }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4.5 19.5l1-4 10-10a2.1 2.1 0 0 1 3 3l-10 10-4 1z"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M13.5 7.5l3 3" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
     </svg>
   );
 }
@@ -1607,17 +1964,28 @@ const CONFIRM_ARM_MS = 5000;
 
 // A yes/no dialog for actions that can't be undone, styled like the entry
 // editors above. The confirm button only arms — turning red and becoming
-// clickable — once CONFIRM_ARM_MS has passed.
-function ConfirmDialog({ title, message, confirmLabel, onConfirm, onClose }) {
-  const [armed, setArmed] = useState(false);
+// clickable — once `armMs` has passed. Erasing every day earned that pause;
+// discarding one day's unsaved edits, with the work still on screen behind the
+// dialog, passes 0 and arms immediately.
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  onConfirm,
+  onClose,
+  eyebrow = "This can't be undone",
+  armMs = CONFIRM_ARM_MS,
+}) {
+  const [armed, setArmed] = useState(armMs === 0);
 
   useEffect(() => {
-    const t = setTimeout(() => setArmed(true), CONFIRM_ARM_MS);
+    if (armMs === 0) return;
+    const t = setTimeout(() => setArmed(true), armMs);
     return () => clearTimeout(t);
-  }, []);
+  }, [armMs]);
 
   return (
-    <Dialog title={title} eyebrow="This can't be undone" ariaLabel={title} onClose={onClose}>
+    <Dialog title={title} eyebrow={eyebrow} ariaLabel={title} onClose={onClose}>
       <p className="mt-3 text-sm" style={{ color: C.muted }}>
         {message}
       </p>
@@ -1644,7 +2012,7 @@ function ConfirmDialog({ title, message, confirmLabel, onConfirm, onClose }) {
 
 // The pill downstairs only counts up. Coming back down happens here, where it
 // takes a deliberate visit — and a draft, so Cancel is a real cancel.
-function DrinkDialog({ count, onSave, onClear, onClose }) {
+function DrinkDialog({ count, eyebrow, onSave, onClear, onClose }) {
   const [draft, setDraft] = useState(count);
 
   const step =
@@ -1652,7 +2020,7 @@ function DrinkDialog({ count, onSave, onClear, onClose }) {
   const stepStyle = { background: C.surfaceHi, color: C.chalk };
 
   return (
-    <Dialog title="Drinks" onClose={onClose}>
+    <Dialog title="Drinks" eyebrow={eyebrow} onClose={onClose}>
       <div className="mt-5 flex items-center justify-center gap-6">
         <button
           onClick={() => setDraft(Math.max(0, draft - 1))}
@@ -1720,7 +2088,7 @@ function DrinkDialog({ count, onSave, onClear, onClose }) {
 // One editor for both kinds of entry. It holds a draft so a half-typed note or
 // a momentarily empty time field never reaches the record, and so Cancel is a
 // real cancel.
-function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose }) {
+function EditDialog({ title, eyebrow, time, note, removeLabel, onSave, onRemove, onClose }) {
   const [draftTime, setDraftTime] = useState(time);
   const [draftNote, setDraftNote] = useState(note || "");
 
@@ -1729,7 +2097,7 @@ function EditDialog({ title, time, note, removeLabel, onSave, onRemove, onClose 
   const fieldStyle = { background: C.surfaceHi, color: C.chalk, border: "none" };
 
   return (
-    <Dialog title={title} onClose={onClose}>
+    <Dialog title={title} eyebrow={eyebrow} onClose={onClose}>
       <label className="mt-4 block text-sm" style={{ color: C.muted }}>
         Time
         <span

@@ -17,8 +17,6 @@
 
 ## Priority: core experience
 
-- [ ] Allow past-day corrections and backfilling, with a prominent indication of
-  which date is being edited.
 - [ ] Add a temporary Undo action after checking a meal or adding a snack,
   workout, or drink.
 - [ ] Add a compact grade legend to the calendar and two-week history.
