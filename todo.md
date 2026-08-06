@@ -11,13 +11,6 @@
 
 These are known-broken and reproducible, as distinct from the improvements below.
 
-- [ ] **A `notice` is never cleared, and it masks the save indicator.** `notice`
-  (`App.jsx:243`) is set in eight places (`:542`, `:705`, `:753`, `:771`, `:773`,
-  `:801`, `:803-805`) and cleared in none. Save an edit to a past day and
-  "Saved Aug 3" sits at the foot of *every* screen for the rest of the session.
-  Worse, `StatusLine` (`:1819-1825`) ranks `notice` above `saving`, so once any
-  notice has landed, "Saving…" never appears again. Fix both with a ~4s timeout
-  that clears it. Verified.
 - [ ] **A dirty past-day draft is lost silently on tab close or app swipe-away.**
   In-app Cancel, the device back button, and Escape all ask first, but there is
   no `beforeunload` handler anywhere in `src/`. `editRef.current.dirty`
