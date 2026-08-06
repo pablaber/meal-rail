@@ -97,11 +97,6 @@ while clearing the floor — not to brighten everything.
   with shape (lit disc → plain disc → ring → broken ring); the calendar cannot
   reuse that, because a solid disc is what makes the numeral legible, so this one
   probably has to be won on contrast and hue rather than form.
-- [ ] **Make the two-week strip tappable.** It is a plain `<div>`
-  (`App.jsx:1003-1045`). Fourteen days sit on the home screen and the only route
-  to any of them is Calendar → find the date. Wiring each column to `openPastDay`
-  reuses everything that already exists; the `key >= today` guard in `openPastDay`
-  (`:305`) already handles today's column correctly.
 - [ ] **Add a "jump to today" control to the calendar.** `shiftMonth` is unbounded
   (`App.jsx:555-559`), so browsing six months back leaves six taps as the only way
   home.
