@@ -100,9 +100,31 @@ export function markReloadedFor(buildId) {
 }
 
 // localStorage is per-browser and per-device, and clearing site data wipes it.
-// These two let you take a backup and move between devices by hand.
+// These let you take a backup and move between devices by hand: two ways out and
+// two ways in, all four carrying the same JSON. A file is what you keep; the
+// clipboard is for a phone with nowhere good to put one, which can paste a
+// backup into a message to itself and read it back on the other device.
+const serialize = (state) => JSON.stringify(state, null, 2);
+
+// The one gate every restore comes through, whichever way the text arrived. Its
+// messages are written for the status line and the paste dialog, which is where
+// they end up, so they say "that" rather than "that file".
+function parseBackup(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("That isn't valid JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || !parsed.days) {
+    throw new Error("That isn't a Meal Rail backup");
+  }
+  // A restored backup skips load(), so it gets the same migration here.
+  return migrate(parsed);
+}
+
 export function exportFile(state) {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const blob = new Blob([serialize(state)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -120,16 +142,56 @@ export function importFile() {
       const file = input.files?.[0];
       if (!file) return reject(new Error("No file chosen"));
       try {
-        const parsed = JSON.parse(await file.text());
-        if (!parsed || typeof parsed !== "object" || !parsed.days) {
-          return reject(new Error("That file isn't a Meal Rail backup"));
-        }
-        // A restored backup skips load(), so it gets the same migration here.
-        resolve(migrate(parsed));
-      } catch {
-        reject(new Error("That file isn't valid JSON"));
+        resolve(parseBackup(await file.text()));
+      } catch (e) {
+        reject(e);
       }
     };
     input.click();
   });
+}
+
+export async function exportClipboard(state) {
+  const text = serialize(state);
+  // `navigator.clipboard` is undefined outside a secure context, which is
+  // exactly what a build served over the LAN to a phone is — the way this app
+  // gets tested. The selection-based copy below still works there, so the
+  // availability check is synchronous and the fallback runs inside the same tap.
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Denied, or the document lost focus. Worth one more try.
+    }
+  }
+  return legacyCopy(text);
+}
+
+function legacyCopy(text) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    document.body.appendChild(ta);
+    ta.select();
+    // iOS ignores select() on a textarea and copies nothing without this.
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// The clipboard's counterpart to `importFile`. Reading the clipboard is a
+// permission prompt on some platforms and silently unavailable on others, so
+// what comes in is text the user pasted into a field themselves — which also
+// means an unreadable backup can be fixed where it stands instead of vanishing
+// with the dialog.
+export function importText(text) {
+  return parseBackup(text);
 }

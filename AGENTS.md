@@ -15,6 +15,44 @@ npm run preview  # serve the built output
 Node 26 (`.nvmrc`). There is no lint, test, or typecheck step — verify changes by
 running the app.
 
+## Previewing a dev build
+
+A fresh server is a fresh browser profile: `localStorage` is empty, so the app
+opens on an unchecked day with an empty strip, an empty calendar and no grades —
+which is most of what there is to look at. Seed it.
+
+**Hand the user JSON to paste, in the chat.** One fenced block they copy, then
+Settings → Your data → **Paste text** → Restore. Do not write a `.json` file to
+`/tmp` or into the repo and ask them to Load a file: that is a download dialog, a
+file picker and a stray file to clean up, and it doesn't work at all when the
+thing they are previewing on is a phone pointed at the LAN URL, where a path on
+your machine means nothing. A paste crosses that gap; it is what the clipboard
+pair exists for (see Backups).
+
+What the seed has to get right:
+
+- The whole blob, `{ settings, days }`. `parseBackup` rejects anything without a
+  `days` key, and a restore replaces `settings` too — omitting it silently resets
+  the slots to `DEFAULTS`.
+- Dates inside the last two weeks, computed from **today's** date, not last
+  month's. Keys are local `YYYY-MM-DD`; a day outside the window is invisible in
+  the strip, and one past `RETENTION_DAYS` is trimmed on the first save.
+- `planned` on every day, and whatever shapes the change actually touches —
+  `notes`, `unplanned`, `workouts`, `drinks`. Cover the grades you want looked at
+  (gold, green, silver, bad, terrible) rather than fourteen identical days.
+
+Say in the same message that Restore replaces everything currently logged, and
+that **Copy as text** takes a backup first. On a machine the user checks real days
+on, that warning is the difference between a preview and a data loss.
+
+Driving the app yourself — devtools, a headless browser — is different: write the
+key straight in with `localStorage.setItem("mealrail:v1", …)` and reload. It is
+fewer moving parts than typing into a dialog, and it exercises `load()`'s
+migration rather than `parseBackup`'s. If you do drive the paste dialog, note that
+the textarea is controlled: an automation tool that assigns `.value` without
+dispatching an `input` event leaves React holding the previous text, and Restore
+will parse *that* — the field looks right and the error makes no sense.
+
 ## Layout
 
 ```
@@ -157,6 +195,32 @@ strip lie about days that were planned differently. A past day's checks against
 slot ids that no longer exist are invisible in both the read-only view and the
 editor, which both render `slots.map(...)`; the fix is dated plans, not a
 special case here.
+
+## Backups
+
+`localStorage` is the only copy of anything, so settings carries four ways to
+move it: a file or the clipboard, out or in. They sit in a 2×2 grid under "Your
+data" — a column per direction, a row per medium — because each one's opposite
+number belongs next to it, and the erase button stays at the foot of the screen
+so it is never a stray tap away from them.
+
+All four carry the same JSON, and both ways in go through `parseBackup` in
+`storage.js`: one place that validates and one place that runs `migrate`. Split
+that and a backup that loads from a file will one day fail to load from a paste.
+Its messages are written to be shown verbatim, which is why they say "that"
+rather than "that file". Both ways in also land on `restoreBackup` in `App.jsx`,
+so a file and a paste can't drift into meaning two different things.
+
+The clipboard is for a phone with nowhere good to put a file: paste a backup into
+a message to yourself and read it back on the other device. Coming back in it is
+text the user pastes into a field rather than a `clipboard.readText()` — that is
+a permission prompt on some platforms and unavailable on others, and the field
+means an unreadable backup can be fixed where it stands. It is also the one
+failure reported inside a dialog rather than on the status line, for the same
+reason: closing the dialog to complain would throw away what was pasted.
+`exportClipboard` keeps a selection-based fallback because `navigator.clipboard`
+is undefined outside a secure context, which is exactly what a build served over
+the LAN to a phone is.
 
 ## Deploying
 

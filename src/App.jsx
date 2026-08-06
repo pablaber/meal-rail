@@ -1,6 +1,14 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { C, FONT } from "./theme.js";
-import { load, save, clear, exportFile, importFile } from "./storage.js";
+import {
+  load,
+  save,
+  clear,
+  exportFile,
+  importFile,
+  exportClipboard,
+  importText,
+} from "./storage.js";
 import { BUILD_ID, checkForUpdate } from "./update.js";
 
 const DEFAULTS = {
@@ -94,6 +102,13 @@ const drinkCircles = (n) => {
   if (rem > 0) out.push(rem);
   return out;
 };
+
+// The four backup buttons tile a 2×2 grid. A grid only reads as one while every
+// cell is the same shape, so they take their width from the column rather than
+// from the length of their own label.
+const DATA_BUTTON_CLASS =
+  "w-full rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
+const DATA_BUTTON_STYLE = { background: C.surfaceHi, color: C.chalk };
 
 // A finished day gets graded on what it ended up looking like. An unplanned
 // entry is one negative; drinks are one negative per circle *started*, so the
@@ -275,6 +290,7 @@ export default function MealRail() {
   });
   const [selectedDay, setSelectedDay] = useState(() => window.history.state?.day || null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   // A past day is edited against a draft rather than written through on every
   // tap the way today is. Today is the day you are living: a tap is the record.
@@ -383,13 +399,13 @@ export default function MealRail() {
     if (view !== "settings" && view !== "calendar" && view !== "day") return;
     const onKey = (e) => {
       if (e.key !== "Escape") return;
-      if (editing || confirmDiscard || confirmClearOpen) return;
+      if (editing || confirmDiscard || confirmClearOpen || pasteOpen) return;
       if (draft) cancelEdit();
       else goBack();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [view, editing, confirmDiscard, confirmClearOpen, draft]);
+  }, [view, editing, confirmDiscard, confirmClearOpen, pasteOpen, draft]);
 
   // Roll over at midnight / on refocus
   useEffect(() => {
@@ -448,6 +464,17 @@ export default function MealRail() {
   const writeSettings = (next) => {
     setSettings(next);
     persist(next, days);
+  };
+
+  // Both ways in end here. A restore replaces everything — in state and on disk
+  // — whichever way the JSON arrived, so a file and a paste can't drift into
+  // meaning two different things.
+  const restoreBackup = (parsed) => {
+    const nextSettings = { ...DEFAULTS, ...(parsed.settings || {}) };
+    setSettings(nextSettings);
+    setDays(parsed.days || {});
+    persist(nextSettings, parsed.days || {});
+    showNotice("Backup restored");
   };
 
   // A backfilled entry has no clock to read, so it lands at its slot's usual
@@ -725,20 +752,34 @@ export default function MealRail() {
     return (
       <Screen
         overlay={
-          confirmClearOpen && (
-            <ConfirmDialog
-              title="Erase all history"
-              message="This permanently deletes every logged day. It can't be undone."
-              confirmLabel="Erase everything"
-              onClose={() => setConfirmClearOpen(false)}
-              onConfirm={async () => {
-                setDays({});
-                await clear();
-                setConfirmClearOpen(false);
-                showNotice("History erased");
-              }}
-            />
-          )
+          <>
+            {confirmClearOpen && (
+              <ConfirmDialog
+                title="Erase all history"
+                message="This permanently deletes every logged day. It can't be undone."
+                confirmLabel="Erase everything"
+                onClose={() => setConfirmClearOpen(false)}
+                onConfirm={async () => {
+                  setDays({});
+                  await clear();
+                  setConfirmClearOpen(false);
+                  showNotice("History erased");
+                }}
+              />
+            )}
+            {pasteOpen && (
+              <PasteDialog
+                onClose={() => setPasteOpen(false)}
+                onLoad={(text) => {
+                  // Throws on anything that isn't a backup, which the dialog
+                  // catches and reports without losing what was pasted.
+                  const parsed = importText(text);
+                  setPasteOpen(false);
+                  restoreBackup(parsed);
+                }}
+              />
+            )}
+          </>
         }
       >
         <header className="flex items-start gap-3">
@@ -778,43 +819,77 @@ export default function MealRail() {
               />
             </button>
           </label>
+        </section>
 
-          <div className="mt-5 flex flex-wrap gap-2 pt-4" style={{ borderTop: `1px solid ${C.rail}` }}>
+        {/* Four ways to move the data, in a grid that says which is which: a
+            column per direction, a row per medium, so every button in it has an
+            opposite number sitting directly beside it. */}
+        <section className="mt-8 pt-6" style={{ borderTop: `1px solid ${C.rail}` }}>
+          <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+            Your data
+          </p>
+          <p className="mt-2 text-sm" style={{ color: C.muted }}>
+            Every day you've logged lives on this device alone. A file is what you keep;
+            text is for moving a backup somewhere a file can't go.
+          </p>
+
+          <div className="mt-4 grid grid-cols-2 items-center gap-2">
+            <p className="text-xs" style={{ color: C.muted, fontFamily: FONT.mono }}>
+              Back up
+            </p>
+            <p className="text-xs" style={{ color: C.muted, fontFamily: FONT.mono }}>
+              Restore
+            </p>
+
             <button
               onClick={() => {
                 exportFile({ settings, days });
                 showNotice("Backup downloaded");
               }}
-              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: C.surfaceHi, color: C.chalk }}
+              aria-label="Download a backup file"
+              className={DATA_BUTTON_CLASS}
+              style={DATA_BUTTON_STYLE}
             >
-              Download a backup
+              Download a file
             </button>
             <button
               onClick={async () => {
                 try {
-                  const parsed = await importFile();
-                  const nextSettings = {
-                    ...DEFAULTS,
-                    ...(parsed.settings || {}),
-                  };
-                  setSettings(nextSettings);
-                  setDays(parsed.days || {});
-                  persist(nextSettings, parsed.days || {});
-                  showNotice("Backup restored");
+                  restoreBackup(await importFile());
                 } catch (e) {
-                  // The messages come from `importFile` and are already written
-                  // for this line — "That file isn't a Meal Rail backup".
+                  // The messages come from `storage.js` and are already written
+                  // for this line — "That isn't a Meal Rail backup".
                   showNotice(e.message, { failed: true });
                 }
               }}
-              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: C.surfaceHi, color: C.chalk }}
+              aria-label="Restore a backup from a file"
+              className={DATA_BUTTON_CLASS}
+              style={DATA_BUTTON_STYLE}
             >
-              Restore a backup
+              Load a file
+            </button>
+
+            <button
+              onClick={async () => {
+                const ok = await exportClipboard({ settings, days });
+                if (ok) showNotice("Backup copied");
+                else showNotice("Couldn't reach the clipboard", { failed: true });
+              }}
+              aria-label="Copy the backup as text"
+              className={DATA_BUTTON_CLASS}
+              style={DATA_BUTTON_STYLE}
+            >
+              Copy as text
+            </button>
+            <button
+              onClick={() => setPasteOpen(true)}
+              aria-label="Restore a backup from pasted text"
+              className={DATA_BUTTON_CLASS}
+              style={DATA_BUTTON_STYLE}
+            >
+              Paste text
             </button>
           </div>
-
         </section>
 
         {/* What the app says about itself, at the foot of the screen: which
@@ -2168,6 +2243,88 @@ function ConfirmDialog({
           style={{ background: armed ? C.red : C.surfaceHi, color: armed ? C.ground : C.muted }}
         >
           {confirmLabel}
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+// The other half of "Copy as text". Reading the clipboard isn't something a page
+// can count on being allowed to do, so the text arrives the way it left: pasted
+// by hand, into a field.
+//
+// This is the one place a failure is reported inside a dialog rather than on the
+// status line. Everything else that reports a failure has already finished
+// doing whatever it was doing; here the pasted JSON is still on screen and
+// usually one truncated line away from being valid, so closing the dialog to say
+// so would throw away the thing being complained about.
+function PasteDialog({ onLoad, onClose }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+
+  return (
+    <Dialog
+      title="Paste a backup"
+      eyebrow="Restoring"
+      ariaLabel="Restore a backup from pasted text"
+      onClose={onClose}
+    >
+      <p className="mt-3 text-sm" style={{ color: C.muted }}>
+        This replaces every day currently logged on this device.
+      </p>
+
+      <label className="mt-4 block text-sm" style={{ color: C.muted }}>
+        Backup text
+        <textarea
+          rows={6}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            setError("");
+          }}
+          placeholder='{ "settings": …, "days": … }'
+          spellCheck="false"
+          autoCapitalize="off"
+          autoCorrect="off"
+          className="mt-1 w-full resize-none rounded-lg px-3 py-2 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{
+            background: C.surfaceHi,
+            color: C.chalk,
+            border: "none",
+            fontFamily: FONT.mono,
+          }}
+        />
+      </label>
+
+      {/* Mounted only when there is something to say — the dialog is free to
+          grow, unlike the status line, which holds its height instead. */}
+      {error && (
+        <p className="mt-2 text-xs" style={{ color: C.brass, fontFamily: FONT.mono }} role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-5 flex items-center justify-end gap-2">
+        <button
+          onClick={onClose}
+          className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: "transparent", color: C.muted }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            try {
+              onLoad(text);
+            } catch (e) {
+              setError(e.message);
+            }
+          }}
+          disabled={!text.trim()}
+          className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+          style={{ background: C.done, color: C.ground }}
+        >
+          Restore
         </button>
       </div>
     </Dialog>

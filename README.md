@@ -36,8 +36,11 @@ that touches a storage API.
 - Safari evicts localStorage for sites unvisited for ~7 days, though installing
   to the home screen exempts it
 
-Hence **Download a backup** and **Restore a backup** in settings. Daily use should
-keep eviction from ever triggering, but take a backup occasionally.
+Hence the **Your data** grid in settings: back up to a file or to the clipboard,
+restore from either. A file is what you keep; the clipboard is for moving a backup
+to another device without one — copy it, paste it into a message to yourself, and
+paste it back in over there. Daily use should keep eviction from ever triggering,
+but take a backup occasionally.
 
 If you later want real sync, `storage.js` is the seam: `load()` and `save()` are
 already async, so swapping their bodies for `fetch()` against a small service is a
