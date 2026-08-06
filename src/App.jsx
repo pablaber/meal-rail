@@ -68,6 +68,14 @@ const ROW_NODE_CLASS =
   "node relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full";
 const ROW_TIME_CLASS = "text-xs";
 
+// One column of the two-week strip. Fourteen of these share the width of a
+// phone, so the spacing between them lives *inside* the column as padding
+// rather than as a `gap` on the row: the columns still look 4px apart, but the
+// touch zones tile edge to edge instead of leaving a third of the strip dead.
+// `py-1` is free height on the same argument — the row has vertical slack above
+// it, and a taller target is a target a thumb can miss vertically and still hit.
+const STRIP_COLUMN_CLASS = "flex flex-1 flex-col items-center gap-1 px-[2px] py-1";
+
 // Two drinks fill one circle — Canada's 2023 guidance says not to exceed two on
 // any day, so a full circle is exactly the ceiling and one drink sits visibly
 // half way there. Everything past that keeps accruing circles.
@@ -1027,50 +1035,29 @@ export default function MealRail() {
         <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
           Last two weeks
         </p>
-        <div className="mt-4 flex items-end justify-between gap-1">
-          {history.map((d) => (
-            <div key={d.key} className="flex flex-1 flex-col items-center gap-1">
-              <div className="flex flex-col-reverse gap-[3px]">
-                {Array.from({ length: Math.max(d.planned, 1) }).map((_, i) => (
-                  <span
-                    key={i}
-                    className="block h-[7px] w-[7px] rounded-[2px]"
-                    style={{ background: i < d.checks ? C.done : C.rail }}
-                  />
-                ))}
+        {/* Every column but today's opens its day, the way a calendar cell
+            does. Today's is a plain element rather than a dead button, because
+            `openPastDay` refuses it — the strip's last column is the day the
+            rail above is already showing. */}
+        <div className="mt-4 flex items-end justify-between">
+          {history.map((d) =>
+            d.isToday ? (
+              <div key={d.key} className={STRIP_COLUMN_CLASS}>
+                <StripDay d={d} />
               </div>
-              <div className="mt-1 flex h-3 flex-col items-center gap-[2px]">
-                {Array.from({ length: Math.min(d.extra, 3) }).map((_, i) => (
-                  <span
-                    key={i}
-                    className="block h-[3px] w-[7px] rounded-full"
-                    style={{ background: C.brass }}
-                  />
-                ))}
-              </div>
-              {/* A fixed-height band, laid out across rather than up, so the
-                  day numbers stay on one line and drinks never read as meals.
-                  Three 6px dots is exactly what a column has room for. */}
-              <div className="flex h-[6px] items-center justify-center gap-[1px]">
-                {drinkCircles(d.drinks)
-                  .slice(0, STRIP_DRINK_DOTS)
-                  .map((fill, i) => (
-                    <DrinkDot key={i} size={6} fill={fill} />
-                  ))}
-              </div>
-              {/* The verdict on a finished day. A fixed height, so the days
-                  without one keep their numbers on the same baseline. */}
-              <div className="flex h-[13px] items-center justify-center">
-                {d.badge && <DayBadge tier={d.badge} />}
-              </div>
-              <span
-                className="text-[10px]"
-                style={{ color: d.isToday ? C.chalk : C.rail, fontFamily: FONT.mono }}
+            ) : (
+              <button
+                key={d.key}
+                onClick={() => openPastDay(d.key)}
+                aria-label={`Open ${formatDate(d.key)}${
+                  d.badge ? `, ${BADGE_LABEL[d.badge]}` : ", no grade"
+                }`}
+                className={`${STRIP_COLUMN_CLASS} rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
               >
-                {d.key.slice(8)}
-              </span>
-            </div>
-          ))}
+                <StripDay d={d} />
+              </button>
+            )
+          )}
         </div>
         <p className="mt-4 text-sm" style={{ color: C.muted }}>
           {weekExtras === 0
@@ -1937,6 +1924,47 @@ function IconChevronRight({ color }) {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+// The stack of marks inside one strip column: meal boxes bottom-up, snack
+// ticks, drinks, the verdict, the date. Only the contents — the column that
+// holds them is a button or a plain box depending on whether the day can be
+// opened, and it owns the sizing either way.
+function StripDay({ d }) {
+  return (
+    <>
+      <div className="flex flex-col-reverse gap-[3px]">
+        {Array.from({ length: Math.max(d.planned, 1) }).map((_, i) => (
+          <span
+            key={i}
+            className="block h-[7px] w-[7px] rounded-[2px]"
+            style={{ background: i < d.checks ? C.done : C.rail }}
+          />
+        ))}
+      </div>
+      <div className="mt-1 flex h-3 flex-col items-center gap-[2px]">
+        {Array.from({ length: Math.min(d.extra, 3) }).map((_, i) => (
+          <span key={i} className="block h-[3px] w-[7px] rounded-full" style={{ background: C.brass }} />
+        ))}
+      </div>
+      {/* A fixed-height band, laid out across rather than up, so the day
+          numbers stay on one line and drinks never read as meals. Three 6px
+          dots is exactly what a column has room for. */}
+      <div className="flex h-[6px] items-center justify-center gap-[1px]">
+        {drinkCircles(d.drinks)
+          .slice(0, STRIP_DRINK_DOTS)
+          .map((fill, i) => (
+            <DrinkDot key={i} size={6} fill={fill} />
+          ))}
+      </div>
+      {/* The verdict on a finished day. A fixed height, so the days without one
+          keep their numbers on the same baseline. */}
+      <div className="flex h-[13px] items-center justify-center">{d.badge && <DayBadge tier={d.badge} />}</div>
+      <span className="text-[10px]" style={{ color: d.isToday ? C.chalk : C.rail, fontFamily: FONT.mono }}>
+        {d.key.slice(8)}
+      </span>
+    </>
   );
 }
 

@@ -113,6 +113,13 @@ alone earned worse, and a day with no entries at all gets nothing. Grades are
 derived at render time — nothing about them is persisted, so old backups load
 unchanged.
 
+Every strip column but today's is a button opening that day, the same route a
+calendar cell takes. Today's is a plain element rather than a disabled button —
+`openPastDay` refuses `key >= today`, and the rail above is already showing it.
+Fourteen columns share the width of a phone, so the spacing between them is
+padding *inside* each column rather than a `gap` on the row: it looks identical
+and the touch zones tile instead of leaving a third of the strip dead.
+
 A past day opened from the calendar can be corrected or backfilled, and it does
 that against a **draft** rather than writing through the way today does. Today is
 the day you are living: a tap is the record, and it lands in `localStorage`
