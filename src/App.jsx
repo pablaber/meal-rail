@@ -32,6 +32,18 @@ const BACKFILL_WORKOUT = "17:00";
 // past-day screen refuses to edit them for exactly that reason.
 const RETENTION_DAYS = 400;
 
+// How long a notice sits in the status line before clearing itself. A notice
+// reports something the app just did, so nothing but the clock can retire one —
+// every call site sets it and moves on, and half of them are on a screen you
+// leave immediately afterwards. Long enough to read a short line, short enough
+// that it isn't still standing over "Saving…" by the next tap.
+const NOTICE_MS = 4000;
+
+// A notice carries its own tone, because the line reports both "Backup
+// restored" and "That file isn't a Meal Rail backup" and those cannot look the
+// same. `failed` borrows the colour a save failure already uses.
+const NO_NOTICE = { text: "", failed: false };
+
 // The add buttons carry a 1px dashed edge; the bubbles beside them are filled
 // and have none. They match heights only if the fill keeps the border box the
 // edge would have occupied.
@@ -240,7 +252,8 @@ export default function MealRail() {
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
-  const [notice, setNotice] = useState("");
+  // Set through `showNotice` only — see the timer below.
+  const [notice, setNotice] = useState(NO_NOTICE);
   const [settings, setSettings] = useState(DEFAULTS);
   const [days, setDays] = useState({});
   const [today, setToday] = useState(dayKey());
@@ -288,6 +301,18 @@ export default function MealRail() {
       alive = false;
     };
   }, []);
+
+  // The only way a notice is set. Each one replaces whatever was on the line
+  // and takes its predecessor's timer with it, so the update check's
+  // "Checking…" → "You're on the latest version" reads as one line changing
+  // rather than two racing clocks.
+  const noticeTimer = useRef(0);
+  const showNotice = useCallback((text, { failed = false } = {}) => {
+    clearTimeout(noticeTimer.current);
+    setNotice({ text, failed });
+    noticeTimer.current = setTimeout(() => setNotice(NO_NOTICE), NOTICE_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
 
   const openSettings = () => {
     window.history.pushState({ view: "settings" }, "");
@@ -539,7 +564,7 @@ export default function MealRail() {
     else nextDays[draft.key] = draft.record;
     setDays(nextDays);
     persist(settings, nextDays);
-    setNotice(`Saved ${formatDateShort(draft.key)}`);
+    showNotice(`Saved ${formatDateShort(draft.key)}`);
     leaveEdit();
   };
 
@@ -702,7 +727,7 @@ export default function MealRail() {
                 setDays({});
                 await clear();
                 setConfirmClearOpen(false);
-                setNotice("History erased");
+                showNotice("History erased");
               }}
             />
           )
@@ -750,7 +775,7 @@ export default function MealRail() {
             <button
               onClick={() => {
                 exportFile({ settings, days });
-                setNotice("Backup downloaded");
+                showNotice("Backup downloaded");
               }}
               className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
               style={{ background: C.surfaceHi, color: C.chalk }}
@@ -768,9 +793,11 @@ export default function MealRail() {
                   setSettings(nextSettings);
                   setDays(parsed.days || {});
                   persist(nextSettings, parsed.days || {});
-                  setNotice("Backup restored");
+                  showNotice("Backup restored");
                 } catch (e) {
-                  setNotice(e.message);
+                  // The messages come from `importFile` and are already written
+                  // for this line — "That file isn't a Meal Rail backup".
+                  showNotice(e.message, { failed: true });
                 }
               }}
               className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
@@ -798,11 +825,12 @@ export default function MealRail() {
             </span>
             <button
               onClick={async () => {
-                setNotice("Checking…");
+                showNotice("Checking…");
                 const result = await checkForUpdate({ force: true });
-                if (result === "updating") setNotice("Updating…");
-                else if (result === "unknown") setNotice("Couldn't check — you may be offline");
-                else setNotice("You're on the latest version");
+                if (result === "updating") showNotice("Updating…");
+                else if (result === "unknown")
+                  showNotice("Couldn't check — you may be offline", { failed: true });
+                else showNotice("You're on the latest version");
               }}
               className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
               style={{ background: C.surfaceHi, color: C.chalk }}
@@ -1809,17 +1837,22 @@ function Screen({ children, overlay }) {
 // screen doesn't jump when there is something to say, and it stays mounted
 // either way — an aria-live region only announces text that arrives in a region
 // that was already there.
+//
+// Two tones, not three: something went wrong, or the app is just talking. A
+// notice that reports a failure takes the same brass a blocked save takes,
+// because "That file isn't a Meal Rail backup" in the quiet grey reads as
+// though the restore went fine.
 function StatusLine({ saveError, notice, saving }) {
   return (
     <p
       className="mt-4 min-h-4 text-xs"
-      style={{ color: saveError ? C.brass : C.rail, fontFamily: FONT.mono }}
+      style={{ color: saveError || notice.failed ? C.brass : C.rail, fontFamily: FONT.mono }}
       aria-live="polite"
     >
       {saveError
         ? "Couldn't save — this browser is blocking storage."
-        : notice
-          ? notice
+        : notice.text
+          ? notice.text
           : saving
             ? "Saving…"
             : ""}
