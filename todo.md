@@ -64,9 +64,6 @@ These are known-broken and reproducible, as distinct from the improvements below
   ring → broken ring); the calendar cannot reuse that wholesale, because a solid
   disc is what makes the numeral legible, so the remaining tiers probably have to
   be won on contrast, hue, and edges rather than form.
-- [ ] **Add a "jump to today" control to the calendar.** `shiftMonth` is unbounded
-  (`App.jsx:555-559`), so browsing six months back leaves six taps as the only way
-  home.
 - [ ] Consider replacing judgmental grade names such as "Bad" and "Terrible" with
   neutral descriptions such as "On plan", "Partial", or "Off-plan x2".
   `BADGE_LABEL` (`App.jsx:96-103`) is the single source for these; they are read
