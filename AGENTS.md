@@ -158,6 +158,14 @@ Fourteen columns share the width of a phone, so the spacing between them is
 padding *inside* each column rather than a `gap` on the row: it looks identical
 and the touch zones tile instead of leaving a third of the strip dead.
 
+The calendar only looks backwards. `shiftMonth` clamps to the month `today`
+falls in, the forward chevron is `disabled` there rather than removed — taking
+it away would re-centre the month label every time you reached the present — and
+a "Today" button appears in the header the moment you leave that month, so six
+months back is one tap from home rather than six. The ceiling comes from `today`
+state, not a fresh `new Date()`, for the same reason `daySummary` takes it as an
+argument: a midnight rollover under an open calendar has to move both together.
+
 A past day opened from the calendar can be corrected or backfilled, and it does
 that against a **draft** rather than writing through the way today does. Today is
 the day you are living: a tap is the record, and it lands in `localStorage`

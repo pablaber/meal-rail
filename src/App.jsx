@@ -318,6 +318,14 @@ export default function MealRail() {
     return { year: d.getFullYear(), month: d.getMonth() };
   });
 
+  // The newest month the calendar will show. Derived from `today` rather than a
+  // fresh `new Date()` so the ceiling and the grid's "today" cell always agree,
+  // including across a midnight rollover with the calendar already open.
+  const currentMonth = useMemo(() => {
+    const d = dateAt(today);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  }, [today]);
+
   // Load
   useEffect(() => {
     let alive = true;
@@ -352,8 +360,7 @@ export default function MealRail() {
   };
 
   const openCalendar = () => {
-    const d = new Date();
-    setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
+    setCalendarMonth(currentMonth);
     window.history.pushState({ view: "calendar" }, "");
     setView("calendar");
   };
@@ -620,10 +627,18 @@ export default function MealRail() {
     return out;
   }, [days, today, settings.slots.length]);
 
+  const atCurrentMonth =
+    calendarMonth.year === currentMonth.year && calendarMonth.month === currentMonth.month;
+
+  // Backwards is unbounded; forwards stops at the current month. There is
+  // nothing to read in a month that hasn't happened, and a chevron that walks
+  // into empty grids is a way to get lost rather than a way to browse.
   const shiftMonth = (delta) =>
     setCalendarMonth(({ year, month }) => {
       const d = new Date(year, month + delta, 1);
-      return { year: d.getFullYear(), month: d.getMonth() };
+      const ceiling = new Date(currentMonth.year, currentMonth.month, 1);
+      const next = d > ceiling ? ceiling : d;
+      return { year: next.getFullYear(), month: next.getMonth() };
     });
 
   // One cell per date in the month, in Sunday-first weekday order, with a
@@ -959,6 +974,19 @@ export default function MealRail() {
           <h1 className="text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
             Calendar
           </h1>
+          {/* The way home from six months back. It lives in the header, and only
+              while it has somewhere to go, so appearing and disappearing costs
+              the grid below no movement — the heading sets this row's height. */}
+          {!atCurrentMonth && (
+            <button
+              onClick={() => setCalendarMonth(currentMonth)}
+              aria-label="Jump to today"
+              className="ml-auto mt-1 shrink-0 rounded-full px-3 py-1.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surface, color: C.chalk }}
+            >
+              Today
+            </button>
+          )}
         </header>
 
         <section className="mt-8">
@@ -974,13 +1002,17 @@ export default function MealRail() {
             <p className="text-lg" style={{ fontFamily: FONT.display }}>
               {calendarMonthLabel}
             </p>
+            {/* Kept on screen rather than removed at the edge: the row is the
+                month's frame, and dropping one end of it would re-centre the
+                label every time you reached the present. */}
             <button
               onClick={() => shiftMonth(1)}
+              disabled={atCurrentMonth}
               aria-label="Next month"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: C.surface }}
+              style={{ background: atCurrentMonth ? "transparent" : C.surface }}
             >
-              <IconChevronRight color={C.chalk} />
+              <IconChevronRight color={atCurrentMonth ? C.faint : C.chalk} />
             </button>
           </div>
 
