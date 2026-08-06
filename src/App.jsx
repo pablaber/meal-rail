@@ -146,12 +146,20 @@ const CALENDAR_DAY_SIZE = 34;
 // numeral — a broken ring or a hollow one just reads as a badly drawn circle at
 // this size — so every tier here is a plain fill and colour alone carries it.
 // The ink flips with the fill so the number stays legible on either.
+//
+// Except at the bottom, where colour alone couldn't carry it: `terrible` and
+// `empty` are the two most opposite verdicts here and their fills measure
+// 1.0:1 against *each other*, both sitting at ~1.9:1 against the page and both
+// wearing chalk numerals. They were the same disc in two hues. `terrible` takes
+// a ring for the difference rather than a lighter fill, because a fill light
+// enough to be seen on its own is too light to read a number off — see
+// `redDeepEdge` in theme.js.
 const CALENDAR_TIER = {
   gold: { background: C.gold, color: C.ground, glow: true },
   green: { background: C.done, color: C.ground },
   silver: { background: C.silver, color: C.ground },
   bad: { background: C.red, color: C.ground },
-  terrible: { background: C.redDeep, color: C.chalk },
+  terrible: { background: C.redDeep, color: C.chalk, border: `2px solid ${C.redDeepEdge}` },
   empty: { background: C.rail, color: C.chalk },
 };
 
@@ -903,7 +911,7 @@ export default function MealRail() {
             className="flex items-center justify-between gap-3 pt-4"
             style={{ borderTop: `1px solid ${C.rail}` }}
           >
-            <span className="text-xs" style={{ color: C.rail, fontFamily: FONT.mono }}>
+            <span className="text-xs" style={{ color: C.faintText, fontFamily: FONT.mono }}>
               Version {BUILD_ID}
             </span>
             <button
@@ -1213,7 +1221,7 @@ function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWor
                     className={ROW_NODE_CLASS}
                     style={{
                       background: t ? C.done : C.ground,
-                      border: `1px solid ${t ? C.done : C.rail}`,
+                      border: `1px solid ${t ? C.done : C.faint}`,
                       transform: t ? "scale(1)" : "scale(0.82)",
                     }}
                   >
@@ -1469,7 +1477,10 @@ function PastDay({ dateKey, today, record, slots, summary, editable, onEdit, onB
               label={slot.label}
               time={checks[slot.id]}
               note={notes[slot.id]}
-              tone={checks[slot.id] ? C.done : C.rail}
+              // Only the ring reads this when the meal wasn't checked — the
+              // time falls back to `rail` on its own, and an em dash standing
+              // in for a time it never had should stay a hairline.
+              tone={checks[slot.id] ? C.done : C.faint}
               checked={!!checks[slot.id]}
             />
           ))}
@@ -1908,7 +1919,7 @@ function StatusLine({ saveError, notice, saving }) {
   return (
     <p
       className="mt-4 min-h-4 text-xs"
-      style={{ color: saveError || notice.failed ? C.brass : C.rail, fontFamily: FONT.mono }}
+      style={{ color: saveError || notice.failed ? C.brass : C.faintText, fontFamily: FONT.mono }}
       aria-live="polite"
     >
       {saveError
@@ -2014,7 +2025,7 @@ function StripDay({ d }) {
           <span
             key={i}
             className="block h-[7px] w-[7px] rounded-[2px]"
-            style={{ background: i < d.checks ? C.done : C.rail }}
+            style={{ background: i < d.checks ? C.done : C.faint }}
           />
         ))}
       </div>
@@ -2036,7 +2047,7 @@ function StripDay({ d }) {
       {/* The verdict on a finished day. A fixed height, so the days without one
           keep their numbers on the same baseline. */}
       <div className="flex h-[13px] items-center justify-center">{d.badge && <DayBadge tier={d.badge} />}</div>
-      <span className="text-[10px]" style={{ color: d.isToday ? C.chalk : C.rail, fontFamily: FONT.mono }}>
+      <span className="text-[10px]" style={{ color: d.isToday ? C.chalk : C.faintText, fontFamily: FONT.mono }}>
         {d.key.slice(8)}
       </span>
     </>
@@ -2069,7 +2080,7 @@ function DayBadge({ tier, size = BADGE_SIZE }) {
           cy={size / 2}
           r={r}
           fill="none"
-          stroke={C.redDeep}
+          stroke={C.redDeepEdge}
           strokeWidth={w}
           strokeDasharray={`${(seg * 2) / 3} ${seg / 3}`}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
@@ -2086,7 +2097,9 @@ function DayBadge({ tier, size = BADGE_SIZE }) {
     green: { background: C.done },
     silver: { background: C.silver },
     bad: { border: `${size / 6}px solid ${C.red}` },
-    empty: { border: `1px solid ${C.rail}`, opacity: 0.7 },
+    // No opacity on this one: 70% of `faint` over the ground lands back at
+    // 2.4:1, which is where it came from. The ring is the whole mark here.
+    empty: { border: `1px solid ${C.faint}` },
   };
 
   return (
@@ -2127,7 +2140,9 @@ function CalendarDay({ day, tier, isToday }) {
         boxShadow: style?.glow
           ? `0 0 ${CALENDAR_DAY_SIZE / 3}px ${C.goldGlow}, inset 0 1px 0 ${C.sheen}`
           : undefined,
-        border: isToday ? `1px solid ${C.muted}` : undefined,
+        // A graded day and today are mutually exclusive — `daySummary` withholds
+        // the badge from today — so these two rings never contend for the edge.
+        border: style?.border || (isToday ? `1px solid ${C.muted}` : undefined),
       }}
     >
       {day}

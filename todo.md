@@ -51,52 +51,19 @@ These are known-broken and reproducible, as distinct from the improvements below
   for an absent key and for a `JSON.parse` throw (`storage.js:50-57`) — one signal
   for two very different situations. Verified.
 
-## Legibility and contrast
-
-Measured with the WCAG relative-luminance formula against `C.ground` (`#10262B`).
-The quietness of the palette is clearly deliberate, so the goal is to keep it
-while clearing the floor — not to brighten everything.
-
-- [ ] **`C.rail` (`#2C545C`) is 1.90:1 and is used as body text in three places.**
-  Fix these: the version line (`App.jsx:796`), the two-week strip's day numbers
-  (`:1040`), and `StatusLine` (`:1816`). Suggested addition to `theme.js`:
-  `faintText: "#829A9F"` — 5.29:1 on ground, 4.50:1 on `surface`.
-- [ ] **Do not blanket-replace `C.rail`.** Most of its other uses are hairlines
-  and unfilled tracks where 1.9:1 is correct and the design depends on it:
-  section rules (`:749`, `:794`), the vertical rail line (`:1097`), the `DrinkDot`
-  unfilled track (`:2008`), and the em dashes standing in for absent times
-  (`:1162`, `:1567`). The `AddButton` `done` tone (`:1269`) is on a `disabled`
-  control and is WCAG-exempt.
-- [ ] **The worst grade is the least visible mark in the app.** `C.redDeep`
-  (`#7E3A36`) is 1.91:1, and it draws the `terrible` badge's broken ring
-  (`App.jsx:1936`). Suggested: `redDeep: "#9D6A67"` — 3.53:1 on ground, 3.00:1 on
-  surface, clearing WCAG 1.4.11 for a meaningful non-text graphic.
-- [ ] **On the calendar, `empty` and `terrible` are effectively the same disc.**
-  `CALENDAR_TIER.empty` fills with `C.rail` and `.terrible` with `C.redDeep`
-  (`App.jsx:119-120`); their contrast *against each other* is **1.01:1**. They
-  differ only in hue, both at ~1.9:1 against the page, and both carry `C.chalk`
-  numerals. "No meals logged" and "terrible day" are the two most opposite
-  verdicts in the app and the two hardest cells to tell apart. This is the same
-  finding as "grades should not depend on colour alone" below, arrived at from
-  the measurement side — fixing `redDeep` addresses both.
-- [ ] Consider whether the unfilled *state* marks want 3:1 too, since they carry
-  information rather than decorating: the strip's unchecked meal boxes
-  (`:1010`), the unchecked rail node border (`:1126`), and the `empty` badge
-  border (`:1953`). `C.faint: "#5E7D83"` (3.54:1 / 3.01:1) is the sibling for
-  this tier if so. Lower priority than the text fixes — judgement call, and the
-  quiet look may be worth more here.
-
 ## Priority: core experience
 
 - [ ] Add a temporary Undo action after checking a meal or adding a snack,
   workout, or drink.
 - [ ] Add a compact grade legend to the calendar and two-week history.
 - [ ] Give calendar grades a visual treatment that does not depend on color alone.
-  See the measured `empty`/`terrible` collision above — that is the concrete case
-  this item is protecting against. Note the strip's `DayBadge` already solves this
-  with shape (lit disc → plain disc → ring → broken ring); the calendar cannot
-  reuse that, because a solid disc is what makes the numeral legible, so this one
-  probably has to be won on contrast and hue rather than form.
+  The worst case is already handled — `empty` and `terrible` measured 1.01:1
+  against each other and `terrible` now takes a ring (`CALENDAR_TIER`) to break
+  the tie — but the other four tiers are still bare fills separated by hue only.
+  Note the strip's `DayBadge` solves this with shape (lit disc → plain disc →
+  ring → broken ring); the calendar cannot reuse that wholesale, because a solid
+  disc is what makes the numeral legible, so the remaining tiers probably have to
+  be won on contrast, hue, and edges rather than form.
 - [ ] **Add a "jump to today" control to the calendar.** `shiftMonth` is unbounded
   (`App.jsx:555-559`), so browsing six months back leaves six taps as the only way
   home.
