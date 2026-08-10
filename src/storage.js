@@ -55,11 +55,25 @@ function migrate(state) {
 }
 
 export async function load() {
+  let raw;
   try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? migrate(JSON.parse(raw)) : null;
+    raw = localStorage.getItem(KEY);
   } catch {
-    return null;
+    return { status: "unreadable", raw: null, reason: "storage" };
+  }
+
+  if (raw === null) return { status: "absent" };
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.days) {
+      return { status: "unreadable", raw, reason: "data" };
+    }
+    return { status: "valid", state: migrate(parsed) };
+  } catch {
+    // Keep the exact value available to the recovery screen. Nothing writes to
+    // or removes it until the user has had a chance to take that copy away.
+    return { status: "unreadable", raw, reason: "data" };
   }
 }
 
@@ -113,6 +127,16 @@ export function markReloadedFor(buildId) {
 // backup into a message to itself and read it back on the other device.
 const serialize = (state) => JSON.stringify(state, null, 2);
 
+function downloadText(text, filename) {
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // The one gate every restore comes through, whichever way the text arrived. Its
 // messages are written for the status line and the paste dialog, which is where
 // they end up, so they say "that" rather than "that file".
@@ -131,13 +155,11 @@ function parseBackup(text) {
 }
 
 export function exportFile(state) {
-  const blob = new Blob([serialize(state)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `meal-rail-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadText(serialize(state), `meal-rail-${new Date().toISOString().slice(0, 10)}.json`);
+}
+
+export function exportRawFile(raw) {
+  downloadText(raw, `meal-rail-recovery-${new Date().toISOString().slice(0, 10)}.txt`);
 }
 
 export function importFile() {
@@ -159,7 +181,14 @@ export function importFile() {
 }
 
 export async function exportClipboard(state) {
-  const text = serialize(state);
+  return copyText(serialize(state));
+}
+
+export async function exportRawClipboard(raw) {
+  return copyText(raw);
+}
+
+async function copyText(text) {
   // `navigator.clipboard` is undefined outside a secure context, which is
   // exactly what a build served over the LAN to a phone is — the way this app
   // gets tested. The selection-based copy below still works there, so the
