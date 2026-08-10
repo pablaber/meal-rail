@@ -68,12 +68,6 @@ These are known-broken and reproducible, as distinct from the improvements below
   neutral descriptions such as "On plan", "Partial", or "Off-plan x2".
   `BADGE_LABEL` (`App.jsx:96-103`) is the single source for these; they are read
   by the strip badge, the calendar `aria-label`, and `GradeCard`.
-- [ ] Improve snack note capture: either open an optional note field when a snack
-  is added or briefly offer an "Add details" action after one-tap logging. Note
-  the past-day path already does something close to this — `backfilling`
-  (`App.jsx:424-427`) opens the editor straight after adding — so the pattern
-  exists and is only withheld from today.
-
 ## History and insights
 
 - [ ] Add 7-day and 30-day meal-completion summaries.
