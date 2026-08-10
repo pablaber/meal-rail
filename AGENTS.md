@@ -89,7 +89,7 @@ One JSON blob under the `mealrail:v1` key:
 
 ```js
 {
-  settings: { slots: [{ id, label }], trainingEnabled, promptSnackNotes },
+  settings: { slots: [{ id, label }], trainingEnabled, promptNotes },
   days: {
     "YYYY-MM-DD": {
       checks: { [slotId]: isoTimestamp },
