@@ -5,8 +5,10 @@ import {
   save,
   clear,
   exportFile,
+  exportRawFile,
   importFile,
   exportClipboard,
+  exportRawClipboard,
   importText,
 } from "./storage.js";
 import { BUILD_ID, checkForUpdate } from "./update.js";
@@ -289,6 +291,10 @@ export default function MealRail() {
   const [notice, setNotice] = useState(NO_NOTICE);
   const [settings, setSettings] = useState(DEFAULTS);
   const [days, setDays] = useState({});
+  const [recovery, setRecovery] = useState(null);
+  const [recoveryConfirm, setRecoveryConfirm] = useState(null);
+  const [recoveryPasteOpen, setRecoveryPasteOpen] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
   const [today, setToday] = useState(dayKey());
   // Settings and the calendar are screens, not panels, and both are reached
   // through history so the device's own back button leaves them the same way
@@ -333,9 +339,11 @@ export default function MealRail() {
     let alive = true;
     (async () => {
       const parsed = await load();
-      if (alive && parsed) {
-        setSettings({ ...DEFAULTS, ...(parsed.settings || {}) });
-        setDays(parsed.days || {});
+      if (alive && parsed.status === "valid") {
+        setSettings({ ...DEFAULTS, ...(parsed.state.settings || {}) });
+        setDays(parsed.state.days || {});
+      } else if (alive && parsed.status === "unreadable") {
+        setRecovery(parsed);
       }
       if (alive) setReady(true);
     })();
@@ -492,6 +500,39 @@ export default function MealRail() {
     setDays(parsed.days || {});
     persist(nextSettings, parsed.days || {});
     showNotice("Backup restored");
+  };
+
+  // Recovery is the one place a restore cannot be optimistic. The damaged raw
+  // value remains the only durable copy until save succeeds, so the normal app
+  // stays blocked if the browser refuses either replacement or reset.
+  const resolveRecovery = async () => {
+    setRecoveryError("");
+
+    if (recoveryConfirm.kind === "reset") {
+      const ok = await clear();
+      if (!ok) {
+        setRecoveryError("Couldn't reset — this browser is blocking storage.");
+        setRecoveryConfirm(null);
+        return;
+      }
+      setSettings(DEFAULTS);
+      setDays({});
+    } else {
+      const parsed = recoveryConfirm.parsed;
+      const nextSettings = { ...DEFAULTS, ...(parsed.settings || {}) };
+      const nextDays = parsed.days || {};
+      const ok = await save({ settings: nextSettings, days: nextDays });
+      if (!ok) {
+        setRecoveryError("Couldn't replace the damaged data — this browser is blocking storage.");
+        setRecoveryConfirm(null);
+        return;
+      }
+      setSettings(nextSettings);
+      setDays(nextDays);
+    }
+
+    setRecoveryConfirm(null);
+    setRecovery(null);
   };
 
   // A backfilled entry has no clock to read, so it lands at its slot's usual
@@ -773,6 +814,131 @@ export default function MealRail() {
       >
         Opening today…
       </div>
+    );
+  }
+
+  if (recovery) {
+    const hasRaw = recovery.raw !== null;
+    return (
+      <Screen
+        overlay={
+          <>
+            {recoveryConfirm && (
+              <ConfirmDialog
+                title={recoveryConfirm.kind === "reset" ? "Reset Meal Rail" : "Replace damaged data"}
+                message={
+                  recoveryConfirm.kind === "reset"
+                    ? "This permanently deletes the damaged saved value. Export or copy it first if you may need it later."
+                    : "This permanently replaces the damaged saved value with the selected backup. Export or copy it first if you may need it later."
+                }
+                confirmLabel={recoveryConfirm.kind === "reset" ? "Reset everything" : "Replace data"}
+                onClose={() => setRecoveryConfirm(null)}
+                onConfirm={resolveRecovery}
+              />
+            )}
+            {recoveryPasteOpen && (
+              <PasteDialog
+                onClose={() => setRecoveryPasteOpen(false)}
+                onLoad={(text) => {
+                  const parsed = importText(text);
+                  setRecoveryPasteOpen(false);
+                  setRecoveryConfirm({ kind: "replace", parsed });
+                }}
+              />
+            )}
+          </>
+        }
+      >
+        <div className="flex flex-1 flex-col justify-center py-8">
+          <p className="text-xs uppercase tracking-widest" style={{ color: C.brass, fontFamily: FONT.mono }}>
+            Recovery needed
+          </p>
+          <h1 className="mt-2 text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+            Your saved data can't be opened
+          </h1>
+          <p className="mt-4 text-sm" style={{ color: C.muted }}>
+            Meal Rail has paused before opening an empty day so it can't overwrite the data already on this device.
+          </p>
+
+          {hasRaw ? (
+            <>
+              <p className="mt-6 text-sm" style={{ color: C.muted }}>
+                Take a copy of the damaged value before resetting it or replacing it with a backup.
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    exportRawFile(recovery.raw);
+                    setRecoveryError("");
+                  }}
+                  className={DATA_BUTTON_CLASS}
+                  style={DATA_BUTTON_STYLE}
+                >
+                  Download raw data
+                </button>
+                <button
+                  onClick={async () => {
+                    const ok = await exportRawClipboard(recovery.raw);
+                    setRecoveryError(ok ? "Raw data copied." : "Couldn't reach the clipboard.");
+                  }}
+                  className={DATA_BUTTON_CLASS}
+                  style={DATA_BUTTON_STYLE}
+                >
+                  Copy raw text
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="mt-6 text-sm" style={{ color: C.brass }} role="alert">
+              This browser wouldn't allow Meal Rail to read its storage, so the raw value can't be exported right now.
+            </p>
+          )}
+
+          <div className="mt-8 border-t pt-6" style={{ borderColor: C.rail }}>
+            <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+              Recover
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const parsed = await importFile();
+                    setRecoveryConfirm({ kind: "replace", parsed });
+                  } catch (e) {
+                    setRecoveryError(e.message);
+                  }
+                }}
+                className={DATA_BUTTON_CLASS}
+                style={DATA_BUTTON_STYLE}
+              >
+                Load a backup
+              </button>
+              <button
+                onClick={() => setRecoveryPasteOpen(true)}
+                className={DATA_BUTTON_CLASS}
+                style={DATA_BUTTON_STYLE}
+              >
+                Paste a backup
+              </button>
+            </div>
+            <button
+              onClick={() => setRecoveryConfirm({ kind: "reset" })}
+              className="mt-6 w-full rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: "transparent", color: C.red }}
+            >
+              Reset and start over
+            </button>
+            <p
+              className="mt-4 min-h-4 text-xs"
+              style={{ color: recoveryError.startsWith("Raw data copied") ? C.faintText : C.brass, fontFamily: FONT.mono }}
+              aria-live="polite"
+              role={recoveryError && !recoveryError.startsWith("Raw data copied") ? "alert" : undefined}
+            >
+              {recoveryError}
+            </p>
+          </div>
+        </div>
+      </Screen>
     );
   }
 
