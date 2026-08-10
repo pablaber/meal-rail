@@ -237,6 +237,12 @@ publishes to GitHub Pages. The workflow passes `BASE_PATH=/<repo-name>/` because
 project Pages sites are served from a subpath; `vite.config.js` reads it. Never
 hardcode a base path.
 
+## Pull requests
+
+When a change has an associated GitHub issue, link the pull request by including
+`Closes #<issue-number>` in its description. This makes the connection visible
+and closes the issue automatically when the pull request merges.
+
 ## Updates
 
 An installed PWA can outlive many releases — iOS resumes a home-screen app
