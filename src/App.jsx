@@ -18,7 +18,7 @@ const DEFAULTS = {
     { id: "s4", label: "Dinner" },
   ],
   trainingEnabled: true,
-  promptSnackNotes: false,
+  promptNotes: false,
 };
 
 // A workout snack isn't a slot you can re-cut — it's one fixed kind of entry,
@@ -30,8 +30,8 @@ const SNACK_LABEL = "Snack";
 // happened, and the app wasn't there. So an entry added to a past day lands at
 // the hour its slot usually falls on and the editor opens on top of it, which
 // makes the time something you confirm rather than something invented behind
-// your back. Today stamps the live clock; its snack editor opens only when the
-// user has asked for that prompt in settings.
+// your back. Today stamps the live clock; its editor opens only when the user
+// has asked for note prompts in settings.
 const BACKFILL_TIMES = ["08:00", "13:00", "19:00"];
 const BACKFILL_FALLBACK = "12:00";
 const BACKFILL_SNACK = "15:00";
@@ -495,8 +495,8 @@ export default function MealRail() {
   };
 
   // A backfilled entry has no clock to read, so it lands at its slot's usual
-  // hour and hands the editor straight over. Today's snack can opt into that
-  // same handoff, with focus on its note. Cancelling either editor leaves the
+  // hour and hands the editor straight over. Today's entries can opt into that
+  // same handoff, with focus on their note. Cancelling an editor leaves the
   // entry logged — Uncheck and Remove sit in the dialog and take it back.
   const backfilling = (kind, id, label, patch, promptToday = false) => {
     writeDay(patch);
@@ -513,7 +513,7 @@ export default function MealRail() {
           ? stampOn(activeKey, BACKFILL_TIMES[index] || BACKFILL_FALLBACK)
           : new Date().toISOString(),
       },
-    });
+    }, settings.promptNotes);
 
   const uncheck = (id) => {
     const checks = { ...activeRecord.checks };
@@ -540,7 +540,7 @@ export default function MealRail() {
         ...(activeRecord.unplanned || []),
         { id, t: editingPast ? stampOn(activeKey, BACKFILL_SNACK) : new Date().toISOString() },
       ],
-    }, settings.promptSnackNotes);
+    }, settings.promptNotes);
   };
 
   const removeUnplanned = (id) =>
@@ -564,7 +564,7 @@ export default function MealRail() {
       workouts: [
         { id, t: editingPast ? stampOn(activeKey, BACKFILL_WORKOUT) : new Date().toISOString() },
       ],
-    });
+    }, settings.promptNotes);
   };
 
   const removeWorkout = (id) => {
@@ -849,21 +849,21 @@ export default function MealRail() {
           </label>
 
           <label className="mt-4 flex items-center justify-between gap-3 text-sm">
-            <span>Open snack notes after logging</span>
+            <span>Open notes after logging</span>
             <button
               onClick={() =>
-                writeSettings({ ...settings, promptSnackNotes: !settings.promptSnackNotes })
+                writeSettings({ ...settings, promptNotes: !settings.promptNotes })
               }
               role="switch"
-              aria-checked={settings.promptSnackNotes}
+              aria-checked={settings.promptNotes}
               className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: settings.promptSnackNotes ? C.done : C.surfaceHi }}
+              style={{ background: settings.promptNotes ? C.done : C.surfaceHi }}
             >
               <span
                 className="node block h-5 w-5 rounded-full"
                 style={{
                   background: C.ground,
-                  transform: `translateX(${settings.promptSnackNotes ? 22 : 2}px)`,
+                  transform: `translateX(${settings.promptNotes ? 22 : 2}px)`,
                 }}
               />
             </button>

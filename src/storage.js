@@ -44,7 +44,14 @@ function migrate(state) {
   Object.keys(state.days).forEach((k) => {
     days[k] = migrateDay(state.days[k]);
   });
-  return { ...state, days };
+  const settings = { ...(state.settings || {}) };
+  // This began as a snack-only prompt. Keep its value when loading an install
+  // or backup from that release, but store only the generic setting from now on.
+  if (!("promptNotes" in settings) && "promptSnackNotes" in settings) {
+    settings.promptNotes = settings.promptSnackNotes;
+  }
+  delete settings.promptSnackNotes;
+  return { ...state, settings, days };
 }
 
 export async function load() {
