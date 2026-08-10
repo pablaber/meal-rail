@@ -18,6 +18,7 @@ const DEFAULTS = {
     { id: "s4", label: "Dinner" },
   ],
   trainingEnabled: true,
+  promptSnackNotes: false,
 };
 
 // A workout snack isn't a slot you can re-cut — it's one fixed kind of entry,
@@ -29,7 +30,8 @@ const SNACK_LABEL = "Snack";
 // happened, and the app wasn't there. So an entry added to a past day lands at
 // the hour its slot usually falls on and the editor opens on top of it, which
 // makes the time something you confirm rather than something invented behind
-// your back. Today is unaffected — it still stamps the live clock, silently.
+// your back. Today stamps the live clock; its snack editor opens only when the
+// user has asked for that prompt in settings.
 const BACKFILL_TIMES = ["08:00", "13:00", "19:00"];
 const BACKFILL_FALLBACK = "12:00";
 const BACKFILL_SNACK = "15:00";
@@ -493,12 +495,14 @@ export default function MealRail() {
   };
 
   // A backfilled entry has no clock to read, so it lands at its slot's usual
-  // hour and hands the editor straight over. Cancelling that editor leaves the
-  // entry at the default — Uncheck and Remove sit in the same dialog and are
-  // the way to take one back.
-  const backfilling = (kind, id, label, patch) => {
+  // hour and hands the editor straight over. Today's snack can opt into that
+  // same handoff, with focus on its note. Cancelling either editor leaves the
+  // entry logged — Uncheck and Remove sit in the dialog and take it back.
+  const backfilling = (kind, id, label, patch, promptToday = false) => {
     writeDay(patch);
-    if (editingPast) setEditing({ kind, id, label });
+    if (editingPast || promptToday) {
+      setEditing({ kind, id, label, focusNote: promptToday && !editingPast });
+    }
   };
 
   const check = (slot, index) =>
@@ -536,7 +540,7 @@ export default function MealRail() {
         ...(activeRecord.unplanned || []),
         { id, t: editingPast ? stampOn(activeKey, BACKFILL_SNACK) : new Date().toISOString() },
       ],
-    });
+    }, settings.promptSnackNotes);
   };
 
   const removeUnplanned = (id) =>
@@ -741,6 +745,7 @@ export default function MealRail() {
           eyebrow={editingPast ? `Editing · ${formatDateShort(activeKey)}` : undefined}
           time={editTarget.time}
           note={editTarget.note}
+          focusNote={editing.focusNote}
           removeLabel={editing.kind === "slot" ? "Uncheck" : "Remove"}
           onClose={() => setEditing(null)}
           onSave={(patch) => {
@@ -838,6 +843,27 @@ export default function MealRail() {
                 style={{
                   background: C.ground,
                   transform: `translateX(${settings.trainingEnabled ? 22 : 2}px)`,
+                }}
+              />
+            </button>
+          </label>
+
+          <label className="mt-4 flex items-center justify-between gap-3 text-sm">
+            <span>Open snack notes after logging</span>
+            <button
+              onClick={() =>
+                writeSettings({ ...settings, promptSnackNotes: !settings.promptSnackNotes })
+              }
+              role="switch"
+              aria-checked={settings.promptSnackNotes}
+              className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: settings.promptSnackNotes ? C.done : C.surfaceHi }}
+            >
+              <span
+                className="node block h-5 w-5 rounded-full"
+                style={{
+                  background: C.ground,
+                  transform: `translateX(${settings.promptSnackNotes ? 22 : 2}px)`,
                 }}
               />
             </button>
@@ -2456,7 +2482,17 @@ function DrinkDialog({ count, eyebrow, onSave, onClear, onClose }) {
 // One editor for both kinds of entry. It holds a draft so a half-typed note or
 // a momentarily empty time field never reaches the record, and so Cancel is a
 // real cancel.
-function EditDialog({ title, eyebrow, time, note, removeLabel, onSave, onRemove, onClose }) {
+function EditDialog({
+  title,
+  eyebrow,
+  time,
+  note,
+  focusNote,
+  removeLabel,
+  onSave,
+  onRemove,
+  onClose,
+}) {
   const [draftTime, setDraftTime] = useState(time);
   const [draftNote, setDraftNote] = useState(note || "");
 
@@ -2490,6 +2526,7 @@ function EditDialog({ title, eyebrow, time, note, removeLabel, onSave, onRemove,
       <label className="mt-4 block text-sm" style={{ color: C.muted }}>
         Notes
         <textarea
+          autoFocus={focusNote}
           rows={3}
           value={draftNote}
           onChange={(e) => setDraftNote(e.target.value)}
