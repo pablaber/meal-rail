@@ -20,9 +20,11 @@ export function registerServiceWorker() {
   if (!("serviceWorker" in navigator) || !import.meta.env.PROD) return;
   // The build id rides in the query string: sw.js never changes, so without it
   // the browser would see the same script and keep the old worker forever.
-  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js?v=${BUILD_ID}`).catch(() => {
-    // Offline support is a nice-to-have; the app works fine without it.
-  });
+  navigator.serviceWorker
+    .register(`${import.meta.env.BASE_URL}sw.js?v=${BUILD_ID}`)
+    .catch(() => {
+      // Offline support is a nice-to-have; the app works fine without it.
+    });
 }
 
 export function watchForUpdates() {

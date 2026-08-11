@@ -31,7 +31,10 @@ function migrateDay(r) {
   else delete day.notes;
 
   if (t) {
-    day.workouts = [...(day.workouts || []), { id: `w${t}`, t, note: note || undefined }];
+    day.workouts = [
+      ...(day.workouts || []),
+      { id: `w${t}`, t, note: note || undefined },
+    ];
   } else if (typeof day.planned === "number") {
     day.planned = Math.max(0, day.planned - 1);
   }
@@ -155,11 +158,17 @@ function parseBackup(text) {
 }
 
 export function exportFile(state) {
-  downloadText(serialize(state), `meal-rail-${new Date().toISOString().slice(0, 10)}.json`);
+  downloadText(
+    serialize(state),
+    `meal-rail-${new Date().toISOString().slice(0, 10)}.json`,
+  );
 }
 
 export function exportRawFile(raw) {
-  downloadText(raw, `meal-rail-recovery-${new Date().toISOString().slice(0, 10)}.txt`);
+  downloadText(
+    raw,
+    `meal-rail-recovery-${new Date().toISOString().slice(0, 10)}.txt`,
+  );
 }
 
 export function importFile() {

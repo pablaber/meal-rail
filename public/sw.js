@@ -25,7 +25,9 @@ async function put(req, res) {
     const cache = await caches.open(CACHE);
     await cache.put(req, res);
     const keys = await cache.keys();
-    await Promise.all(keys.slice(0, keys.length - MAX_ENTRIES).map((k) => cache.delete(k)));
+    await Promise.all(
+      keys.slice(0, keys.length - MAX_ENTRIES).map((k) => cache.delete(k)),
+    );
   } catch {
     // Out of quota, most likely. The response is already on its way to the
     // page; only the offline copy is lost.
@@ -36,8 +38,12 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
+      .then((keys) =>
+        Promise.all(
+          keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)),
+        ),
+      )
+      .then(() => self.clients.claim()),
   );
 });
 
@@ -62,7 +68,9 @@ self.addEventListener("fetch", (e) => {
           put(req, res.clone());
           return res;
         })
-        .catch(() => caches.match(req).then((hit) => hit || caches.match("./")))
+        .catch(() =>
+          caches.match(req).then((hit) => hit || caches.match("./")),
+        ),
     );
     return;
   }
@@ -75,7 +83,7 @@ self.addEventListener("fetch", (e) => {
         fetch(req).then((res) => {
           put(req, res.clone());
           return res;
-        })
-    )
+        }),
+    ),
   );
 });

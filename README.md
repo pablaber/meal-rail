@@ -21,6 +21,17 @@ npm install
 npm run dev
 ```
 
+Before opening a pull request, run the same checks as CI:
+
+```bash
+npm run lint
+npm run format:check
+npm run build
+```
+
+Use `npm run format` to apply the repository's two-space, double-quote, and
+semicolon formatting conventions.
+
 ## How it's put together
 
 React and Vite, with Tailwind for layout and a small palette in `theme.js` for

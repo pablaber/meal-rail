@@ -1,4 +1,11 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import { C, FONT } from "./theme.js";
 import {
   load,
@@ -86,7 +93,8 @@ const ROW_TIME_CLASS = "text-xs";
 // touch zones tile edge to edge instead of leaving a third of the strip dead.
 // `py-1` is free height on the same argument — the row has vertical slack above
 // it, and a taller target is a target a thumb can miss vertically and still hit.
-const STRIP_COLUMN_CLASS = "flex flex-1 flex-col items-center gap-1 px-[2px] py-1";
+const STRIP_COLUMN_CLASS =
+  "flex flex-1 flex-col items-center gap-1 px-[2px] py-1";
 
 // Two drinks fill one circle — Canada's 2023 guidance says not to exceed two on
 // any day, so a full circle is exactly the ceiling and one drink sits visibly
@@ -163,7 +171,11 @@ const CALENDAR_TIER = {
   green: { background: C.done, color: C.ground },
   silver: { background: C.silver, color: C.ground },
   bad: { background: C.red, color: C.ground },
-  terrible: { background: C.redDeep, color: C.chalk, border: `2px solid ${C.redDeepEdge}` },
+  terrible: {
+    background: C.redDeep,
+    color: C.chalk,
+    border: `2px solid ${C.redDeepEdge}`,
+  },
   empty: { background: C.rail, color: C.chalk },
 };
 
@@ -177,7 +189,9 @@ const dayKey = (d = new Date()) => {
 // `daySummary` that doesn't need to look a day up.
 const summarize = (r, defaultPlanned) => ({
   planned: r?.planned ?? defaultPlanned,
-  checks: r ? Object.keys(r.checks || {}).length + (r.workouts || []).length : 0,
+  checks: r
+    ? Object.keys(r.checks || {}).length + (r.workouts || []).length
+    : 0,
   extra: r ? (r.unplanned || []).length : 0,
   drinks: r?.drinks || 0,
 });
@@ -216,23 +230,41 @@ const formatDate = (key) =>
 // Short enough for a dialog eyebrow, which is where it says which day the
 // entry under the editor belongs to.
 const formatDateShort = (key) =>
-  dateAt(key).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  dateAt(key).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 
 // The wordings a day screen can title itself with, longest first, for
 // `FitHeading` to work down. The year is what pushes this past the width of a
 // narrow phone, and on a day in the year you are standing in it says nothing you
 // didn't know — so it only shows up when the day is in another one.
 const dayHeadings = (key, todayKey) => {
-  const year = key.slice(0, 4) === todayKey.slice(0, 4) ? {} : { year: "numeric" };
+  const year =
+    key.slice(0, 4) === todayKey.slice(0, 4) ? {} : { year: "numeric" };
   const d = dateAt(key);
   return [
-    d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", ...year }),
-    d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", ...year }),
+    d.toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      ...year,
+    }),
+    d.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      ...year,
+    }),
   ];
 };
 
 const clock = (iso) =>
-  new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  new Date(iso).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
 // An <input type="time"> speaks "HH:MM" in local time; the record speaks ISO.
 const toTimeField = (iso) => {
@@ -248,7 +280,15 @@ const fromTimeField = (key, value, iso) => {
   const [y, m, d] = key.split("-").map(Number);
   const [hh, mm] = value.split(":").map(Number);
   const prev = new Date(iso);
-  return new Date(y, m - 1, d, hh, mm, prev.getSeconds(), prev.getMilliseconds()).toISOString();
+  return new Date(
+    y,
+    m - 1,
+    d,
+    hh,
+    mm,
+    prev.getSeconds(),
+    prev.getMilliseconds(),
+  ).toISOString();
 };
 
 // The same rebuild for an entry that has no previous timestamp to keep the
@@ -277,7 +317,9 @@ const isEmptyDay = (r) =>
 // — and a day with no record at all falls back to today's plan, which is the
 // only answer available when backfilling.
 const plannedBase = (r, slots) =>
-  typeof r?.planned === "number" ? Math.max(0, r.planned - (r.workouts || []).length) : slots.length;
+  typeof r?.planned === "number"
+    ? Math.max(0, r.planned - (r.workouts || []).length)
+    : slots.length;
 
 const BLANK_DAY = { checks: {}, notes: {}, unplanned: [], workouts: [] };
 
@@ -304,7 +346,9 @@ export default function MealRail() {
     const v = window.history.state?.view;
     return v === "settings" || v === "calendar" || v === "day" ? v : "today";
   });
-  const [selectedDay, setSelectedDay] = useState(() => window.history.state?.day || null);
+  const [selectedDay, setSelectedDay] = useState(
+    () => window.history.state?.day || null,
+  );
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -396,7 +440,10 @@ export default function MealRail() {
     const onPop = (e) => {
       if (editRef.current.active && !e.state?.edit) {
         if (editRef.current.dirty) {
-          window.history.pushState({ view: "day", day: editRef.current.key, edit: true }, "");
+          window.history.pushState(
+            { view: "day", day: editRef.current.key, edit: true },
+            "",
+          );
           setConfirmDiscard(true);
           return;
         }
@@ -406,7 +453,9 @@ export default function MealRail() {
       }
       const v = e.state?.view;
       setSelectedDay(v === "day" ? e.state?.day || null : null);
-      setView(v === "settings" || v === "calendar" || v === "day" ? v : "today");
+      setView(
+        v === "settings" || v === "calendar" || v === "day" ? v : "today",
+      );
       setConfirmClearOpen(false);
       setEditing(null);
     };
@@ -472,8 +521,11 @@ export default function MealRail() {
     // `in` rather than a fallback: removing the last workout patches the key to
     // undefined so it drops out of the JSON, and `??` would read that as "not
     // being changed" and leave the day planning a slot that no longer exists.
-    const workouts = ("workouts" in patch ? patch.workouts : activeRecord.workouts) || [];
-    next.planned = (editingPast ? plannedBase(activeRecord, slots) : slots.length) + workouts.length;
+    const workouts =
+      ("workouts" in patch ? patch.workouts : activeRecord.workouts) || [];
+    next.planned =
+      (editingPast ? plannedBase(activeRecord, slots) : slots.length) +
+      workouts.length;
 
     if (editingPast) {
       editRef.current.dirty = true;
@@ -523,7 +575,9 @@ export default function MealRail() {
       const nextDays = parsed.days || {};
       const ok = await save({ settings: nextSettings, days: nextDays });
       if (!ok) {
-        setRecoveryError("Couldn't replace the damaged data — this browser is blocking storage.");
+        setRecoveryError(
+          "Couldn't replace the damaged data — this browser is blocking storage.",
+        );
         setRecoveryConfirm(null);
         return;
       }
@@ -547,14 +601,20 @@ export default function MealRail() {
   };
 
   const check = (slot, index) =>
-    backfilling("slot", slot.id, slot.label, {
-      checks: {
-        ...activeRecord.checks,
-        [slot.id]: editingPast
-          ? stampOn(activeKey, BACKFILL_TIMES[index] || BACKFILL_FALLBACK)
-          : new Date().toISOString(),
+    backfilling(
+      "slot",
+      slot.id,
+      slot.label,
+      {
+        checks: {
+          ...activeRecord.checks,
+          [slot.id]: editingPast
+            ? stampOn(activeKey, BACKFILL_TIMES[index] || BACKFILL_FALLBACK)
+            : new Date().toISOString(),
+        },
       },
-    }, settings.promptNotes);
+      settings.promptNotes,
+    );
 
   const uncheck = (id) => {
     const checks = { ...activeRecord.checks };
@@ -569,28 +629,50 @@ export default function MealRail() {
     if (note) notes[id] = note;
     else delete notes[id];
     writeDay({
-      checks: { ...activeRecord.checks, [id]: fromTimeField(activeKey, time, activeRecord.checks[id]) },
+      checks: {
+        ...activeRecord.checks,
+        [id]: fromTimeField(activeKey, time, activeRecord.checks[id]),
+      },
       notes,
     });
   };
 
   const addUnplanned = () => {
     const id = uid();
-    backfilling("unplanned", id, SNACK_LABEL, {
-      unplanned: [
-        ...(activeRecord.unplanned || []),
-        { id, t: editingPast ? stampOn(activeKey, BACKFILL_SNACK) : new Date().toISOString() },
-      ],
-    }, settings.promptNotes);
+    backfilling(
+      "unplanned",
+      id,
+      SNACK_LABEL,
+      {
+        unplanned: [
+          ...(activeRecord.unplanned || []),
+          {
+            id,
+            t: editingPast
+              ? stampOn(activeKey, BACKFILL_SNACK)
+              : new Date().toISOString(),
+          },
+        ],
+      },
+      settings.promptNotes,
+    );
   };
 
   const removeUnplanned = (id) =>
-    writeDay({ unplanned: (activeRecord.unplanned || []).filter((u) => u.id !== id) });
+    writeDay({
+      unplanned: (activeRecord.unplanned || []).filter((u) => u.id !== id),
+    });
 
   const editUnplanned = (id, { time, note }) =>
     writeDay({
       unplanned: (activeRecord.unplanned || []).map((u) =>
-        u.id === id ? { ...u, t: fromTimeField(activeKey, time, u.t), note: note || undefined } : u
+        u.id === id
+          ? {
+              ...u,
+              t: fromTimeField(activeKey, time, u.t),
+              note: note || undefined,
+            }
+          : u,
       ),
     });
 
@@ -601,11 +683,22 @@ export default function MealRail() {
   const addWorkout = () => {
     if ((activeRecord.workouts || []).length) return;
     const id = uid();
-    backfilling("workout", id, WORKOUT_LABEL, {
-      workouts: [
-        { id, t: editingPast ? stampOn(activeKey, BACKFILL_WORKOUT) : new Date().toISOString() },
-      ],
-    }, settings.promptNotes);
+    backfilling(
+      "workout",
+      id,
+      WORKOUT_LABEL,
+      {
+        workouts: [
+          {
+            id,
+            t: editingPast
+              ? stampOn(activeKey, BACKFILL_WORKOUT)
+              : new Date().toISOString(),
+          },
+        ],
+      },
+      settings.promptNotes,
+    );
   };
 
   const removeWorkout = (id) => {
@@ -616,7 +709,13 @@ export default function MealRail() {
   const editWorkout = (id, { time, note }) =>
     writeDay({
       workouts: (activeRecord.workouts || []).map((w) =>
-        w.id === id ? { ...w, t: fromTimeField(activeKey, time, w.t), note: note || undefined } : w
+        w.id === id
+          ? {
+              ...w,
+              t: fromTimeField(activeKey, time, w.t),
+              note: note || undefined,
+            }
+          : w,
       ),
     });
 
@@ -673,7 +772,8 @@ export default function MealRail() {
   }, [days, today, settings.slots.length]);
 
   const atCurrentMonth =
-    calendarMonth.year === currentMonth.year && calendarMonth.month === currentMonth.month;
+    calendarMonth.year === currentMonth.year &&
+    calendarMonth.month === currentMonth.month;
 
   // Backwards is unbounded; forwards stops at the current month. There is
   // nothing to read in a month that hasn't happened, and a chevron that walks
@@ -698,18 +798,24 @@ export default function MealRail() {
     for (let i = 0; i < firstDow; i++) cells.push(null);
     for (let day = 1; day <= daysInMonth; day++) {
       const key = dayKey(new Date(year, month, day));
-      cells.push({ day, ...daySummary(days, key, settings.slots.length, key === today) });
+      cells.push({
+        day,
+        ...daySummary(days, key, settings.slots.length, key === today),
+      });
     }
     return cells;
   }, [calendarMonth, days, settings.slots.length, today]);
 
   const calendarMonthLabel = useMemo(
     () =>
-      new Date(calendarMonth.year, calendarMonth.month, 1).toLocaleDateString(undefined, {
-        month: "long",
-        year: "numeric",
-      }),
-    [calendarMonth]
+      new Date(calendarMonth.year, calendarMonth.month, 1).toLocaleDateString(
+        undefined,
+        {
+          month: "long",
+          year: "numeric",
+        },
+      ),
+    [calendarMonth],
   );
 
   const selectedDayRecord = selectedDay ? days[selectedDay] : null;
@@ -719,7 +825,9 @@ export default function MealRail() {
 
   // The draft's grade, recomputed as it is edited, so a correction shows what
   // it does to the day before it is committed.
-  const draftGrade = draft ? dayBadge(summarize(draft.record, slots.length)) : null;
+  const draftGrade = draft
+    ? dayBadge(summarize(draft.record, slots.length))
+    : null;
 
   const weekExtras = history.slice(7).reduce((a, d) => a + d.extra, 0);
   const weekDrinks = history.slice(7).reduce((a, d) => a + d.drinks, 0);
@@ -739,9 +847,14 @@ export default function MealRail() {
     }
     if (editing.kind === "slot") {
       const t = (activeRecord.checks || {})[editing.id];
-      return t ? { time: toTimeField(t), note: (activeRecord.notes || {})[editing.id] } : null;
+      return t
+        ? { time: toTimeField(t), note: (activeRecord.notes || {})[editing.id] }
+        : null;
     }
-    const list = (editing.kind === "workout" ? activeRecord.workouts : activeRecord.unplanned) || [];
+    const list =
+      (editing.kind === "workout"
+        ? activeRecord.workouts
+        : activeRecord.unplanned) || [];
     const e = list.find((x) => x.id === editing.id);
     return e ? { time: toTimeField(e.t), note: e.note } : null;
   }, [editing, activeRecord]);
@@ -766,7 +879,9 @@ export default function MealRail() {
       {editing && editTarget && editing.kind === "drinks" && (
         <DrinkDialog
           count={editTarget.count}
-          eyebrow={editingPast ? `Editing · ${formatDateShort(activeKey)}` : undefined}
+          eyebrow={
+            editingPast ? `Editing · ${formatDateShort(activeKey)}` : undefined
+          }
           onClose={() => setEditing(null)}
           onSave={(n) => {
             setDrinkCount(n);
@@ -783,7 +898,9 @@ export default function MealRail() {
         <EditDialog
           key={editing.id}
           title={editing.label}
-          eyebrow={editingPast ? `Editing · ${formatDateShort(activeKey)}` : undefined}
+          eyebrow={
+            editingPast ? `Editing · ${formatDateShort(activeKey)}` : undefined
+          }
           time={editTarget.time}
           note={editTarget.note}
           focusNote={editing.focusNote}
@@ -825,13 +942,21 @@ export default function MealRail() {
           <>
             {recoveryConfirm && (
               <ConfirmDialog
-                title={recoveryConfirm.kind === "reset" ? "Reset Meal Rail" : "Replace damaged data"}
+                title={
+                  recoveryConfirm.kind === "reset"
+                    ? "Reset Meal Rail"
+                    : "Replace damaged data"
+                }
                 message={
                   recoveryConfirm.kind === "reset"
                     ? "This permanently deletes the damaged saved value. Export or copy it first if you may need it later."
                     : "This permanently replaces the damaged saved value with the selected backup. Export or copy it first if you may need it later."
                 }
-                confirmLabel={recoveryConfirm.kind === "reset" ? "Reset everything" : "Replace data"}
+                confirmLabel={
+                  recoveryConfirm.kind === "reset"
+                    ? "Reset everything"
+                    : "Replace data"
+                }
                 onClose={() => setRecoveryConfirm(null)}
                 onConfirm={resolveRecovery}
               />
@@ -850,20 +975,28 @@ export default function MealRail() {
         }
       >
         <div className="flex flex-1 flex-col justify-center py-8">
-          <p className="text-xs uppercase tracking-widest" style={{ color: C.brass, fontFamily: FONT.mono }}>
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.brass, fontFamily: FONT.mono }}
+          >
             Recovery needed
           </p>
-          <h1 className="mt-2 text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+          <h1
+            className="mt-2 text-3xl leading-tight"
+            style={{ fontFamily: FONT.display }}
+          >
             Your saved data can't be opened
           </h1>
           <p className="mt-4 text-sm" style={{ color: C.muted }}>
-            Meal Rail has paused before opening an empty day so it can't overwrite the data already on this device.
+            Meal Rail has paused before opening an empty day so it can't
+            overwrite the data already on this device.
           </p>
 
           {hasRaw ? (
             <>
               <p className="mt-6 text-sm" style={{ color: C.muted }}>
-                Take a copy of the damaged value before resetting it or replacing it with a backup.
+                Take a copy of the damaged value before resetting it or
+                replacing it with a backup.
               </p>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
@@ -879,7 +1012,9 @@ export default function MealRail() {
                 <button
                   onClick={async () => {
                     const ok = await exportRawClipboard(recovery.raw);
-                    setRecoveryError(ok ? "Raw data copied." : "Couldn't reach the clipboard.");
+                    setRecoveryError(
+                      ok ? "Raw data copied." : "Couldn't reach the clipboard.",
+                    );
                   }}
                   className={DATA_BUTTON_CLASS}
                   style={DATA_BUTTON_STYLE}
@@ -890,12 +1025,16 @@ export default function MealRail() {
             </>
           ) : (
             <p className="mt-6 text-sm" style={{ color: C.brass }} role="alert">
-              This browser wouldn't allow Meal Rail to read its storage, so the raw value can't be exported right now.
+              This browser wouldn't allow Meal Rail to read its storage, so the
+              raw value can't be exported right now.
             </p>
           )}
 
           <div className="mt-8 border-t pt-6" style={{ borderColor: C.rail }}>
-            <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+            <p
+              className="text-xs uppercase tracking-widest"
+              style={{ color: C.muted, fontFamily: FONT.mono }}
+            >
               Recover
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -930,9 +1069,18 @@ export default function MealRail() {
             </button>
             <p
               className="mt-4 min-h-4 text-xs"
-              style={{ color: recoveryError.startsWith("Raw data copied") ? C.faintText : C.brass, fontFamily: FONT.mono }}
+              style={{
+                color: recoveryError.startsWith("Raw data copied")
+                  ? C.faintText
+                  : C.brass,
+                fontFamily: FONT.mono,
+              }}
               aria-live="polite"
-              role={recoveryError && !recoveryError.startsWith("Raw data copied") ? "alert" : undefined}
+              role={
+                recoveryError && !recoveryError.startsWith("Raw data copied")
+                  ? "alert"
+                  : undefined
+              }
             >
               {recoveryError}
             </p>
@@ -985,24 +1133,37 @@ export default function MealRail() {
           >
             <IconBack color={C.chalk} />
           </button>
-          <h1 className="text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+          <h1
+            className="text-3xl leading-tight"
+            style={{ fontFamily: FONT.display }}
+          >
             Settings
           </h1>
         </header>
 
         <section className="mt-8">
-          <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
             Your day
           </p>
 
           <label className="mt-3 flex items-center justify-between gap-3 text-sm">
             <span>Offer a workout snack</span>
             <button
-              onClick={() => writeSettings({ ...settings, trainingEnabled: !settings.trainingEnabled })}
+              onClick={() =>
+                writeSettings({
+                  ...settings,
+                  trainingEnabled: !settings.trainingEnabled,
+                })
+              }
               role="switch"
               aria-checked={settings.trainingEnabled}
               className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: settings.trainingEnabled ? C.done : C.surfaceHi }}
+              style={{
+                background: settings.trainingEnabled ? C.done : C.surfaceHi,
+              }}
             >
               <span
                 className="node block h-5 w-5 rounded-full"
@@ -1018,12 +1179,17 @@ export default function MealRail() {
             <span>Open notes after logging</span>
             <button
               onClick={() =>
-                writeSettings({ ...settings, promptNotes: !settings.promptNotes })
+                writeSettings({
+                  ...settings,
+                  promptNotes: !settings.promptNotes,
+                })
               }
               role="switch"
               aria-checked={settings.promptNotes}
               className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              style={{ background: settings.promptNotes ? C.done : C.surfaceHi }}
+              style={{
+                background: settings.promptNotes ? C.done : C.surfaceHi,
+              }}
             >
               <span
                 className="node block h-5 w-5 rounded-full"
@@ -1039,20 +1205,32 @@ export default function MealRail() {
         {/* Four ways to move the data, in a grid that says which is which: a
             column per direction, a row per medium, so every button in it has an
             opposite number sitting directly beside it. */}
-        <section className="mt-8 pt-6" style={{ borderTop: `1px solid ${C.rail}` }}>
-          <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+        <section
+          className="mt-8 pt-6"
+          style={{ borderTop: `1px solid ${C.rail}` }}
+        >
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
             Your data
           </p>
           <p className="mt-2 text-sm" style={{ color: C.muted }}>
-            Every day you've logged lives on this device alone. A file is what you keep;
-            text is for moving a backup somewhere a file can't go.
+            Every day you've logged lives on this device alone. A file is what
+            you keep; text is for moving a backup somewhere a file can't go.
           </p>
 
           <div className="mt-4 grid grid-cols-2 items-center gap-2">
-            <p className="text-xs" style={{ color: C.muted, fontFamily: FONT.mono }}>
+            <p
+              className="text-xs"
+              style={{ color: C.muted, fontFamily: FONT.mono }}
+            >
               Back up
             </p>
-            <p className="text-xs" style={{ color: C.muted, fontFamily: FONT.mono }}>
+            <p
+              className="text-xs"
+              style={{ color: C.muted, fontFamily: FONT.mono }}
+            >
               Restore
             </p>
 
@@ -1088,7 +1266,8 @@ export default function MealRail() {
               onClick={async () => {
                 const ok = await exportClipboard({ settings, days });
                 if (ok) showNotice("Backup copied");
-                else showNotice("Couldn't reach the clipboard", { failed: true });
+                else
+                  showNotice("Couldn't reach the clipboard", { failed: true });
               }}
               aria-label="Copy the backup as text"
               className={DATA_BUTTON_CLASS}
@@ -1118,7 +1297,10 @@ export default function MealRail() {
             className="flex items-center justify-between gap-3 pt-4"
             style={{ borderTop: `1px solid ${C.rail}` }}
           >
-            <span className="text-xs" style={{ color: C.faintText, fontFamily: FONT.mono }}>
+            <span
+              className="text-xs"
+              style={{ color: C.faintText, fontFamily: FONT.mono }}
+            >
               Version {BUILD_ID}
             </span>
             <button
@@ -1127,7 +1309,9 @@ export default function MealRail() {
                 const result = await checkForUpdate({ force: true });
                 if (result === "updating") showNotice("Updating…");
                 else if (result === "unknown")
-                  showNotice("Couldn't check — you may be offline", { failed: true });
+                  showNotice("Couldn't check — you may be offline", {
+                    failed: true,
+                  });
                 else showNotice("You're on the latest version");
               }}
               className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
@@ -1163,7 +1347,10 @@ export default function MealRail() {
           >
             <IconBack color={C.chalk} />
           </button>
-          <h1 className="text-3xl leading-tight" style={{ fontFamily: FONT.display }}>
+          <h1
+            className="text-3xl leading-tight"
+            style={{ fontFamily: FONT.display }}
+          >
             Calendar
           </h1>
           {/* The way home from six months back. It lives in the header, and only
@@ -1225,19 +1412,25 @@ export default function MealRail() {
                     <button
                       onClick={() => openPastDay(cell.key)}
                       aria-label={`Open ${formatDate(cell.key)}${
-                        cell.badge ? `, ${BADGE_LABEL[cell.badge]}` : ", no grade"
+                        cell.badge
+                          ? `, ${BADGE_LABEL[cell.badge]}`
+                          : ", no grade"
                       }`}
                       className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     >
                       <CalendarDay day={cell.day} tier={cell.badge} />
                     </button>
                   ) : (
-                    <CalendarDay day={cell.day} tier={cell.badge} isToday={cell.isToday} />
+                    <CalendarDay
+                      day={cell.day}
+                      tier={cell.badge}
+                      isToday={cell.isToday}
+                    />
                   )}
                 </div>
               ) : (
                 <div key={`blank-${i}`} aria-hidden="true" />
-              )
+              ),
             )}
           </div>
         </section>
@@ -1255,7 +1448,9 @@ export default function MealRail() {
           railProps={railProps}
           onCancel={cancelEdit}
           onSave={saveEdit}
-          status={<StatusLine saveError={saveError} notice={notice} saving={saving} />}
+          status={
+            <StatusLine saveError={saveError} notice={notice} saving={saving} />
+          }
           overlay={
             <>
               {entryDialogs}
@@ -1287,7 +1482,9 @@ export default function MealRail() {
         editable={selectedDay >= shiftDay(today, -RETENTION_DAYS)}
         onEdit={() => startEdit(selectedDay)}
         onBack={goBack}
-        status={<StatusLine saveError={saveError} notice={notice} saving={saving} />}
+        status={
+          <StatusLine saveError={saveError} notice={notice} saving={saving} />
+        }
       />
     );
   }
@@ -1339,7 +1536,10 @@ export default function MealRail() {
       {/* History. mt-auto takes up whatever the rail leaves over, so a short
           day puts the slack above this strip instead of below it. */}
       <section className="mt-auto pt-8">
-        <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+        <p
+          className="text-xs uppercase tracking-widest"
+          style={{ color: C.muted, fontFamily: FONT.mono }}
+        >
           Last two weeks
         </p>
         {/* Every column but today's opens its day, the way a calendar cell
@@ -1363,7 +1563,7 @@ export default function MealRail() {
               >
                 <StripDay d={d} />
               </button>
-            )
+            ),
           )}
         </div>
         <p className="mt-4 text-sm" style={{ color: C.muted }}>
@@ -1384,7 +1584,16 @@ export default function MealRail() {
 // whichever day it is. Today writes through it on every tap; the past-day
 // editor points it at a draft. Neither knows which, which is the point — the
 // screen that wraps it decides where a patch lands.
-function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWorkout, onAddDrink, onEdit }) {
+function DayRail({
+  record,
+  slots,
+  trainingEnabled,
+  onCheck,
+  onAddSnack,
+  onAddWorkout,
+  onAddDrink,
+  onEdit,
+}) {
   const checks = record.checks || {};
   const notes = record.notes || {};
   const workouts = record.workouts || [];
@@ -1406,7 +1615,9 @@ function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWor
       });
       (map[pos] = map[pos] || []).push(item);
     });
-    Object.values(map).forEach((list) => list.sort((a, b) => a.e.t.localeCompare(b.e.t)));
+    Object.values(map).forEach((list) =>
+      list.sort((a, b) => a.e.t.localeCompare(b.e.t)),
+    );
     return map;
   }, [record, slots]);
 
@@ -1434,7 +1645,9 @@ function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWor
                   // A checked row opens the editor rather than clearing
                   // itself — undoing a meal shouldn't be one stray tap away.
                   onClick={() =>
-                    t ? onEdit({ kind: "slot", id: s.id, label: s.label }) : onCheck(s, i)
+                    t
+                      ? onEdit({ kind: "slot", id: s.id, label: s.label })
+                      : onCheck(s, i)
                   }
                   aria-pressed={!!t}
                   aria-label={t ? `Edit ${s.label}` : `Check off ${s.label}`}
@@ -1450,7 +1663,12 @@ function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWor
                     }}
                   >
                     {t && (
-                      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 12 12"
+                        aria-hidden="true"
+                      >
                         <path
                           d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
                           fill="none"
@@ -1473,7 +1691,10 @@ function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWor
                       {s.label}
                     </span>
                     {note && (
-                      <span className="block truncate text-xs" style={{ color: C.muted }}>
+                      <span
+                        className="block truncate text-xs"
+                        style={{ color: C.muted }}
+                      >
                         {note}
                       </span>
                     )}
@@ -1526,55 +1747,68 @@ function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWor
         <div className="flex flex-1 justify-end">
           {/* Sized rather than grown: filling its half would leave the seam
               correct but the button far wider than the count beside it. */}
-          <AddButton onClick={onAddDrink} color={C.red} label="Drink" grow={false} width="9.5rem" />
+          <AddButton
+            onClick={onAddDrink}
+            color={C.red}
+            label="Drink"
+            grow={false}
+            width="9.5rem"
+          />
         </div>
         <div className="flex flex-1 justify-start">
-        {drinks > 0 ? (
-          <button
-            onClick={() => onEdit({ kind: "drinks", id: "drinks", label: "Drinks" })}
-            aria-label={`Edit drinks — ${drinks} logged`}
-            className="flex items-center gap-2 rounded-full px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            style={{ background: C.surface, border: BUBBLE_EDGE }}
-          >
-            <span className="flex items-center gap-[3px]" aria-hidden="true">
-              {drinkCircles(drinks)
-                .slice(0, DRINK_DOTS_MAX)
-                .map((fill, i) => (
-                  <DrinkDot key={i} size={10} fill={fill} />
-                ))}
-            </span>
-            <span style={{ color: C.chalk, fontFamily: FONT.mono }}>{drinks}</span>
-          </button>
-        ) : (
-          // Not a control — there is nothing to edit about none — so it is a
-          // plain bubble holding the standing answer to what the button asks.
-          <span
-            role="img"
-            aria-label="No drinks logged"
-            className="flex items-center gap-2 rounded-full px-3 py-2 text-base"
-            style={{ background: C.surface, border: BUBBLE_EDGE }}
-          >
-            <span
-              className="flex h-4 w-4 items-center justify-center rounded-full"
-              style={{ background: C.done }}
-              aria-hidden="true"
+          {drinks > 0 ? (
+            <button
+              onClick={() =>
+                onEdit({ kind: "drinks", id: "drinks", label: "Drinks" })
+              }
+              aria-label={`Edit drinks — ${drinks} logged`}
+              className="flex items-center gap-2 rounded-full px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surface, border: BUBBLE_EDGE }}
             >
-              <svg width="10" height="10" viewBox="0 0 12 12">
-                <path
-                  d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
-                  fill="none"
-                  stroke={C.ground}
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <span className="flex items-center gap-[3px]" aria-hidden="true">
+                {drinkCircles(drinks)
+                  .slice(0, DRINK_DOTS_MAX)
+                  .map((fill, i) => (
+                    <DrinkDot key={i} size={10} fill={fill} />
+                  ))}
+              </span>
+              <span style={{ color: C.chalk, fontFamily: FONT.mono }}>
+                {drinks}
+              </span>
+            </button>
+          ) : (
+            // Not a control — there is nothing to edit about none — so it is a
+            // plain bubble holding the standing answer to what the button asks.
+            <span
+              role="img"
+              aria-label="No drinks logged"
+              className="flex items-center gap-2 rounded-full px-3 py-2 text-base"
+              style={{ background: C.surface, border: BUBBLE_EDGE }}
+            >
+              <span
+                className="flex h-4 w-4 items-center justify-center rounded-full"
+                style={{ background: C.done }}
+                aria-hidden="true"
+              >
+                <svg width="10" height="10" viewBox="0 0 12 12">
+                  <path
+                    d="M2.5 6.3 L4.8 8.6 L9.5 3.6"
+                    fill="none"
+                    stroke={C.ground}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              <span
+                aria-hidden="true"
+                style={{ color: C.chalk, fontFamily: FONT.mono }}
+              >
+                None
+              </span>
             </span>
-            <span aria-hidden="true" style={{ color: C.chalk, fontFamily: FONT.mono }}>
-              None
-            </span>
-          </span>
-        )}
+          )}
         </div>
       </div>
     </section>
@@ -1587,14 +1821,26 @@ function DayRail({ record, slots, trainingEnabled, onCheck, onAddSnack, onAddWor
 // `done` is for the one-a-day button once the day has had its one: the slot
 // keeps its width so the row doesn't reflow, and dims to the rail colour with a
 // tick in place of the plus rather than disappearing.
-function AddButton({ onClick, color, label, grow = true, width, done = false }) {
+function AddButton({
+  onClick,
+  color,
+  label,
+  grow = true,
+  width,
+  done = false,
+}) {
   const tone = done ? C.rail : color;
   return (
     <button
       onClick={onClick}
       disabled={done}
       className={`flex ${grow ? "flex-1" : ""} items-center justify-center gap-2 rounded-full px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
-      style={{ background: "transparent", color: tone, border: `1px dashed ${tone}`, width }}
+      style={{
+        background: "transparent",
+        color: tone,
+        border: `1px dashed ${tone}`,
+        width,
+      }}
     >
       {done ? <IconTick color={tone} /> : <IconPlus color={tone} />}
       {label}
@@ -1604,15 +1850,32 @@ function AddButton({ onClick, color, label, grow = true, width, done = false }) 
 
 function IconPlus({ color }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <path d="M7 1.5v11M1.5 7h11" stroke={color} strokeWidth="1.6" strokeLinecap="round" />
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M7 1.5v11M1.5 7h11"
+        stroke={color}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 function IconTick({ color }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M2 7.5 L5.5 11 L12 3.5"
         stroke={color}
@@ -1632,11 +1895,21 @@ function ExtraRows({ items, onEdit }) {
       <WorkoutRow key={e.id} w={e} onEdit={onEdit} />
     ) : (
       <UnplannedRow key={e.id} u={e} onEdit={onEdit} />
-    )
+    ),
   );
 }
 
-function PastDay({ dateKey, today, record, slots, summary, editable, onEdit, onBack, status }) {
+function PastDay({
+  dateKey,
+  today,
+  record,
+  slots,
+  summary,
+  editable,
+  onEdit,
+  onBack,
+  status,
+}) {
   const checks = record?.checks || {};
   const notes = record?.notes || {};
   const snacks = record?.unplanned || [];
@@ -1686,8 +1959,8 @@ function PastDay({ dateKey, today, record, slots, summary, editable, onEdit, onB
           offering to correct it would be offering to write into a bin. */}
       {!editable && (
         <p className="mt-4 text-sm" style={{ color: C.muted }}>
-          Meal Rail keeps {RETENTION_DAYS} days. This one is older than that, so it can no longer
-          be edited.
+          Meal Rail keeps {RETENTION_DAYS} days. This one is older than that, so
+          it can no longer be edited.
         </p>
       )}
 
@@ -1749,7 +2022,10 @@ function PastDay({ dateKey, today, record, slots, summary, editable, onEdit, onB
       </PastDaySection>
 
       <PastDaySection title="Drinks">
-        <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: C.surface }}>
+        <div
+          className="flex items-center justify-between rounded-xl px-4 py-3"
+          style={{ background: C.surface }}
+        >
           <span style={{ color: drinks ? C.chalk : C.muted }}>
             {drinks} {drinks === 1 ? "drink" : "drinks"}
           </span>
@@ -1774,12 +2050,24 @@ function PastDay({ dateKey, today, record, slots, summary, editable, onEdit, onB
 // a date that has already been and gone. Nothing here writes through — the
 // draft it edits lives upstairs and only reaches storage on Save — so the
 // screen has to say, loudly and continuously, which day it is holding.
-function PastDayEditor({ dateKey, grade, dirty, railProps, onCancel, onSave, status, overlay }) {
+function PastDayEditor({
+  dateKey,
+  grade,
+  dirty,
+  railProps,
+  onCancel,
+  onSave,
+  status,
+  overlay,
+}) {
   return (
     <Screen overlay={overlay}>
       <header
         className="rounded-xl px-4 py-3"
-        style={{ background: C.surfaceBrass, borderLeft: `3px solid ${C.brass}` }}
+        style={{
+          background: C.surfaceBrass,
+          borderLeft: `3px solid ${C.brass}`,
+        }}
       >
         <p
           className="text-xs uppercase tracking-widest"
@@ -1787,7 +2075,10 @@ function PastDayEditor({ dateKey, grade, dirty, railProps, onCancel, onSave, sta
         >
           Editing{dirty ? " · Unsaved changes" : ""}
         </p>
-        <h1 className="mt-1 text-2xl leading-tight" style={{ fontFamily: FONT.display }}>
+        <h1
+          className="mt-1 text-2xl leading-tight"
+          style={{ fontFamily: FONT.display }}
+        >
           {formatDate(dateKey)}
         </h1>
       </header>
@@ -1839,7 +2130,11 @@ function GradeCard({ grade }) {
         >
           Grade
         </p>
-        <p className="mt-1 text-lg" style={{ fontFamily: FONT.display }} aria-live="polite">
+        <p
+          className="mt-1 text-lg"
+          style={{ fontFamily: FONT.display }}
+          aria-live="polite"
+        >
           {grade ? BADGE_LABEL[grade] : "No grade"}
         </p>
       </div>
@@ -1869,10 +2164,16 @@ function PastDaySection({ title, children }) {
 // beside it the moment a note appeared.
 function PastEntry({ label, time, note, tone, checked = false }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl px-4 py-3" style={{ background: C.surface }}>
+    <div
+      className="flex items-center gap-3 rounded-xl px-4 py-3"
+      style={{ background: C.surface }}
+    >
       <span
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
-        style={{ background: checked ? tone : "transparent", border: `1px solid ${tone}` }}
+        style={{
+          background: checked ? tone : "transparent",
+          border: `1px solid ${tone}`,
+        }}
         aria-hidden="true"
       >
         {checked && <IconTick color={C.ground} />}
@@ -1882,7 +2183,10 @@ function PastEntry({ label, time, note, tone, checked = false }) {
           {label}
         </span>
         {note && (
-          <span className="mt-1 block text-sm whitespace-pre-wrap" style={{ color: C.muted }}>
+          <span
+            className="mt-1 block text-sm whitespace-pre-wrap"
+            style={{ color: C.muted }}
+          >
             {note}
           </span>
         )}
@@ -1899,7 +2203,10 @@ function PastEntry({ label, time, note, tone, checked = false }) {
 
 function EmptyPastEntry({ label }) {
   return (
-    <p className="rounded-xl px-4 py-3 text-sm" style={{ background: C.surface, color: C.muted }}>
+    <p
+      className="rounded-xl px-4 py-3 text-sm"
+      style={{ background: C.surface, color: C.muted }}
+    >
       {label}
     </p>
   );
@@ -1911,7 +2218,9 @@ function EmptyPastEntry({ label }) {
 function WorkoutRow({ w, onEdit }) {
   return (
     <button
-      onClick={() => onEdit({ kind: "workout", id: w.id, label: WORKOUT_LABEL })}
+      onClick={() =>
+        onEdit({ kind: "workout", id: w.id, label: WORKOUT_LABEL })
+      }
       aria-label={`Edit this ${WORKOUT_LABEL.toLowerCase()}`}
       className={ROW_CLASS}
       style={{ background: C.surface }}
@@ -1935,7 +2244,10 @@ function WorkoutRow({ w, onEdit }) {
         </svg>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-lg" style={{ fontFamily: FONT.display, color: C.chalk }}>
+        <span
+          className="block text-lg"
+          style={{ fontFamily: FONT.display, color: C.chalk }}
+        >
           {WORKOUT_LABEL}
         </span>
         {w.note && (
@@ -1964,7 +2276,9 @@ function WorkoutRow({ w, onEdit }) {
 function UnplannedRow({ u, onEdit }) {
   return (
     <button
-      onClick={() => onEdit({ kind: "unplanned", id: u.id, label: SNACK_LABEL })}
+      onClick={() =>
+        onEdit({ kind: "unplanned", id: u.id, label: SNACK_LABEL })
+      }
       aria-label={`Edit this ${SNACK_LABEL.toLowerCase()}`}
       className={ROW_CLASS}
       style={{ background: C.surfaceBrass }}
@@ -1987,7 +2301,10 @@ function UnplannedRow({ u, onEdit }) {
         </svg>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-lg" style={{ fontFamily: FONT.display, color: C.brass }}>
+        <span
+          className="block text-lg"
+          style={{ fontFamily: FONT.display, color: C.brass }}
+        >
           {SNACK_LABEL}
         </span>
         {u.note && (
@@ -2118,7 +2435,9 @@ function Screen({ children, overlay }) {
         }
       `}</style>
 
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col">{children}</div>
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
+        {children}
+      </div>
 
       {overlay}
     </div>
@@ -2143,7 +2462,10 @@ function StatusLine({ saveError, notice, saving }) {
   return (
     <p
       className="mt-4 min-h-4 text-xs"
-      style={{ color: saveError || notice.failed ? C.brass : C.faintText, fontFamily: FONT.mono }}
+      style={{
+        color: saveError || notice.failed ? C.brass : C.faintText,
+        fontFamily: FONT.mono,
+      }}
       aria-live="polite"
     >
       {saveError
@@ -2160,17 +2482,48 @@ function StatusLine({ saveError, notice, saving }) {
 // The way in to settings, and the way back out.
 function IconSliders({ color }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M3 7h12.4M3 17h5.4M13.6 17H21" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
-      <circle cx="18" cy="7" r="2.6" stroke={color} strokeWidth="1.7" fill="none" />
-      <circle cx="11" cy="17" r="2.6" stroke={color} strokeWidth="1.7" fill="none" />
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3 7h12.4M3 17h5.4M13.6 17H21"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+      <circle
+        cx="18"
+        cy="7"
+        r="2.6"
+        stroke={color}
+        strokeWidth="1.7"
+        fill="none"
+      />
+      <circle
+        cx="11"
+        cy="17"
+        r="2.6"
+        stroke={color}
+        strokeWidth="1.7"
+        fill="none"
+      />
     </svg>
   );
 }
 
 function IconBack({ color }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M15 5l-7 7 7 7"
         stroke={color}
@@ -2185,9 +2538,28 @@ function IconBack({ color }) {
 // The way in to the calendar, beside settings and matching its treatment.
 function IconCalendar({ color }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="3.5" y="5" width="17" height="15" rx="2" stroke={color} strokeWidth="1.7" />
-      <path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <rect
+        x="3.5"
+        y="5"
+        width="17"
+        height="15"
+        rx="2"
+        stroke={color}
+        strokeWidth="1.7"
+      />
+      <path
+        d="M3.5 9.5h17M8 3v3.5M16 3v3.5"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -2196,7 +2568,13 @@ function IconCalendar({ color }) {
 // and settings icons the today header carries.
 function IconPencil({ color }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M4.5 19.5l1-4 10-10a2.1 2.1 0 0 1 3 3l-10 10-4 1z"
         stroke={color}
@@ -2204,14 +2582,25 @@ function IconPencil({ color }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path d="M13.5 7.5l3 3" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+      <path
+        d="M13.5 7.5l3 3"
+        stroke={color}
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 function IconChevronLeft({ color }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M15 5l-7 7 7 7"
         stroke={color}
@@ -2225,7 +2614,13 @@ function IconChevronLeft({ color }) {
 
 function IconChevronRight({ color }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
       <path
         d="M9 5l7 7-7 7"
         stroke={color}
@@ -2255,7 +2650,11 @@ function StripDay({ d }) {
       </div>
       <div className="mt-1 flex h-3 flex-col items-center gap-[2px]">
         {Array.from({ length: Math.min(d.extra, 3) }).map((_, i) => (
-          <span key={i} className="block h-[3px] w-[7px] rounded-full" style={{ background: C.brass }} />
+          <span
+            key={i}
+            className="block h-[3px] w-[7px] rounded-full"
+            style={{ background: C.brass }}
+          />
         ))}
       </div>
       {/* A fixed-height band, laid out across rather than up, so the day
@@ -2270,8 +2669,16 @@ function StripDay({ d }) {
       </div>
       {/* The verdict on a finished day. A fixed height, so the days without one
           keep their numbers on the same baseline. */}
-      <div className="flex h-[13px] items-center justify-center">{d.badge && <DayBadge tier={d.badge} />}</div>
-      <span className="text-[10px]" style={{ color: d.isToday ? C.chalk : C.faintText, fontFamily: FONT.mono }}>
+      <div className="flex h-[13px] items-center justify-center">
+        {d.badge && <DayBadge tier={d.badge} />}
+      </div>
+      <span
+        className="text-[10px]"
+        style={{
+          color: d.isToday ? C.chalk : C.faintText,
+          fontFamily: FONT.mono,
+        }}
+      >
         {d.key.slice(8)}
       </span>
     </>
@@ -2424,10 +2831,16 @@ function Dialog({ title, eyebrow = "Editing", ariaLabel, onClose, children }) {
           fontFamily: FONT.body,
         }}
       >
-        <p className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: FONT.mono }}>
+        <p
+          className="text-xs uppercase tracking-widest"
+          style={{ color: C.muted, fontFamily: FONT.mono }}
+        >
           {eyebrow}
         </p>
-        <h2 className="mt-1 text-2xl leading-tight" style={{ fontFamily: FONT.display }}>
+        <h2
+          className="mt-1 text-2xl leading-tight"
+          style={{ fontFamily: FONT.display }}
+        >
           {title}
         </h2>
         {children}
@@ -2479,7 +2892,10 @@ function ConfirmDialog({
           onClick={onConfirm}
           disabled={!armed}
           className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
-          style={{ background: armed ? C.red : C.surfaceHi, color: armed ? C.ground : C.muted }}
+          style={{
+            background: armed ? C.red : C.surfaceHi,
+            color: armed ? C.ground : C.muted,
+          }}
         >
           {confirmLabel}
         </button>
@@ -2538,7 +2954,11 @@ function PasteDialog({ onLoad, onClose }) {
       {/* Mounted only when there is something to say — the dialog is free to
           grow, unlike the status line, which holds its height instead. */}
       {error && (
-        <p className="mt-2 text-xs" style={{ color: C.brass, fontFamily: FONT.mono }} role="alert">
+        <p
+          className="mt-2 text-xs"
+          style={{ color: C.brass, fontFamily: FONT.mono }}
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -2664,7 +3084,11 @@ function EditDialog({
 
   const field =
     "mt-1 w-full rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
-  const fieldStyle = { background: C.surfaceHi, color: C.chalk, border: "none" };
+  const fieldStyle = {
+    background: C.surfaceHi,
+    color: C.chalk,
+    border: "none",
+  };
 
   return (
     <Dialog title={title} eyebrow={eyebrow} onClose={onClose}>
