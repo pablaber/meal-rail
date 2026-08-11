@@ -12,5 +12,5 @@ createRoot(document.getElementById("root")).render(
 
 // Offline support, so the checklist opens on a plane or in a basement — and the
 // counterweight to it, so an installed copy doesn't sit on an old build.
-window.addEventListener("load", registerServiceWorker);
+registerServiceWorker();
 watchForUpdates();
