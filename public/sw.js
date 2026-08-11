@@ -1,6 +1,6 @@
-// Minimal offline cache. Vite fingerprints asset filenames, so a runtime
-// cache-first strategy keeps whatever has been fetched and picks up new
-// builds automatically without a precache manifest to maintain.
+// Minimal offline cache. Vite fingerprints asset filenames and emits a
+// build-specific precache manifest so one completed online visit is enough to
+// make the whole app shell available offline.
 //
 // This file is identical from one release to the next, so the page registers it
 // as `sw.js?v=<build id>`: a fresh script URL each deploy is what makes the
@@ -14,7 +14,46 @@
 const CACHE = "meal-rail";
 const MAX_ENTRIES = 12;
 
-self.addEventListener("install", () => self.skipWaiting());
+async function trim(cache, protectedUrls = new Set()) {
+  const keys = await cache.keys();
+  const excess = keys.length - MAX_ENTRIES;
+  if (excess <= 0) return;
+
+  const removable = keys.filter((req) => !protectedUrls.has(req.url));
+  await Promise.all(removable.slice(0, excess).map((req) => cache.delete(req)));
+}
+
+async function precache() {
+  const buildId = new URL(self.location.href).searchParams.get("v");
+  if (!buildId) throw new Error("The service worker has no build id");
+
+  const manifestUrl = new URL(
+    `precache-${encodeURIComponent(buildId)}.json`,
+    self.registration.scope,
+  );
+  const response = await fetch(manifestUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error("The precache manifest could not be read");
+
+  const paths = await response.json();
+  if (!Array.isArray(paths) || paths.some((path) => typeof path !== "string")) {
+    throw new Error("The precache manifest is invalid");
+  }
+
+  const urls = paths.map((path) => new URL(path, self.registration.scope).href);
+  if (urls.length > MAX_ENTRIES) {
+    throw new Error("The app shell exceeds the offline cache limit");
+  }
+
+  const cache = await caches.open(CACHE);
+  await cache.addAll(urls.map((url) => new Request(url, { cache: "reload" })));
+  await trim(cache, new Set(urls));
+}
+
+self.addEventListener("install", (e) => {
+  // Only replace a working worker once this build is completely cached. Cache
+  // addAll is atomic, so a partial download can never become the offline shell.
+  e.waitUntil(precache().then(() => self.skipWaiting()));
+});
 
 // Every build leaves its predecessor's bundles behind. cache.keys() comes back
 // in insertion order and put() re-inserts at the end, so dropping from the
@@ -24,13 +63,10 @@ async function put(req, res) {
   try {
     const cache = await caches.open(CACHE);
     await cache.put(req, res);
-    const keys = await cache.keys();
-    await Promise.all(
-      keys.slice(0, keys.length - MAX_ENTRIES).map((k) => cache.delete(k)),
-    );
+    await trim(cache);
   } catch {
-    // Out of quota, most likely. The response is already on its way to the
-    // page; only the offline copy is lost.
+    // Out of quota, most likely. A caching failure must not block the network
+    // response; only the offline copy is lost.
   }
 }
 
@@ -64,12 +100,14 @@ self.addEventListener("fetch", (e) => {
   if (req.mode === "navigate") {
     e.respondWith(
       fetch(req.url, { cache: "no-store" })
-        .then((res) => {
-          put(req, res.clone());
+        .then(async (res) => {
+          await put(req, res.clone());
           return res;
         })
         .catch(() =>
-          caches.match(req).then((hit) => hit || caches.match("./")),
+          caches
+            .match(req)
+            .then((hit) => hit || caches.match(self.registration.scope)),
         ),
     );
     return;
@@ -80,8 +118,8 @@ self.addEventListener("fetch", (e) => {
     caches.match(req).then(
       (hit) =>
         hit ||
-        fetch(req).then((res) => {
-          put(req, res.clone());
+        fetch(req).then(async (res) => {
+          await put(req, res.clone());
           return res;
         }),
     ),
