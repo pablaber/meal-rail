@@ -1651,6 +1651,9 @@ function DayRail({
                   }
                   aria-pressed={!!t}
                   aria-label={t ? `Edit ${s.label}` : `Check off ${s.label}`}
+                  // Checking a meal off is a tap that writes; opening the
+                  // editor on one already checked is not.
+                  data-haptic={t ? undefined : "commit"}
                   className={ROW_CLASS}
                   style={{ background: t ? C.surface : "transparent" }}
                 >
@@ -1834,6 +1837,7 @@ function AddButton({
     <button
       onClick={onClick}
       disabled={done}
+      data-haptic="commit"
       className={`flex ${grow ? "flex-1" : ""} items-center justify-center gap-2 rounded-full px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
       style={{
         background: "transparent",
@@ -2095,6 +2099,7 @@ function PastDayEditor({
         </button>
         <button
           onClick={onSave}
+          data-haptic="commit"
           className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           style={{ background: C.done, color: C.ground }}
         >

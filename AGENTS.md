@@ -62,6 +62,7 @@ src/main.jsx      entry point; starts the service worker and the update check
 src/App.jsx       the entire UI — one component plus DayRail and the row/dialog parts
 src/storage.js    persistence; the only file that touches a storage API
 src/theme.js      color and font constants
+src/haptics.js    the buzz under the finger, delegated from one listener
 src/update.js     build id, service worker registration, update check
 public/sw.js      offline cache
 index.html        PWA meta tags
@@ -84,6 +85,32 @@ index.html        PWA meta tags
   and Tailwind's utilities are layered — an unlayered `button { font: inherit }`
   once beat every `text-*` class in the app, silently, for months. Tailwind's
   preflight already normalises form elements; you rarely need such a rule at all.
+
+## Haptics
+
+`src/haptics.js` buzzes the phone when a control fires. One capture-phase `click`
+listener on `document`, started from `main.jsx` — not a call inside each of the
+app's ~50 handlers, which is a line every new control would have to remember.
+Nothing needs adding for a button to feel like the rest of the app.
+
+Two weights. Everything gets `tap`; a control that _writes an entry in one press_
+— checking a meal off, the three `AddButton`s, Save in the past-day editor — opts
+up to the firmer `commit` with `data-haptic="commit"`. Opening the editor on a
+meal already checked is a `tap`, so the attribute on the rail row is conditional.
+Don't spread `commit` any further: it means something landed only while it is
+rarer than the other one.
+
+It listens for `click` rather than `pointerdown` because a finger landing on the
+two-week strip to scroll it would otherwise buzz for a gesture that activated
+nothing, and in capture so a handler calling `stopPropagation` — the dialog's
+inner panel does — can't silence it. Native `disabled` never dispatches a click;
+`aria-disabled` is checked by hand.
+
+Assume it does nothing. Safari has never shipped `navigator.vibrate`, so on an
+iPhone this is very likely inert, and a phone in silent mode or with system
+haptics off ignores the call everywhere. The module no-ops when the API is
+missing and nothing in the app may depend on a buzz having happened. There is no
+in-app toggle on purpose — the OS already owns that switch.
 
 ## Data model
 
