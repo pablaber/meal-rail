@@ -179,8 +179,8 @@ These are known-broken and reproducible, as distinct from the improvements below
   "colours come from `theme.js`, never as Tailwind classes or literal hex" are
   mechanically checkable with a `no-restricted-syntax` rule, and a convention a
   linter enforces survives better than one a doc asks for.
-- [ ] Update dependencies. As of 2026-08-06: React 18.3.1 → 19.2.8, Vite 6 →
-  8.2.0, `@vitejs/plugin-react` 4 → 6.0.5, Tailwind 4.0 → 4.3.3. The React 19
+- [x] Update dependencies. As of 2026-08-11: React 18.3.1 → 19.2.8, Vite 6 →
+  8.2.1, `@vitejs/plugin-react` 4 → 6.0.5, Tailwind 4.0 → 4.3.3. The React 19
   bump is the only one with real migration surface.
 
 ## Housekeeping

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Meal Rail — a client-only PWA meal checklist. React 18 + Vite 6 + Tailwind 4, no
+Meal Rail — a client-only PWA meal checklist. React 19 + Vite 8 + Tailwind 4, no
 backend, no accounts, no tests. State lives in `localStorage`.
 
 ## Commands
