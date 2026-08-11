@@ -10,10 +10,12 @@ npm install
 npm run dev      # vite dev server
 npm run build    # production build to dist/
 npm run preview  # serve the built output
+npm run lint     # JavaScript/JSX and theme-color checks
+npm run format:check # verify formatting
 ```
 
-Node 26 (`.nvmrc`). There is no lint, test, or typecheck step — verify changes by
-running the app.
+Node 26 (`.nvmrc`). There is no test or typecheck step — run lint and formatting
+checks, then verify behavioral changes by running the app.
 
 ## Previewing a dev build
 
@@ -51,7 +53,7 @@ fewer moving parts than typing into a dialog, and it exercises `load()`'s
 migration rather than `parseBackup`'s. If you do drive the paste dialog, note that
 the textarea is controlled: an automation tool that assigns `.value` without
 dispatching an `input` event leaves React holding the previous text, and Restore
-will parse *that* — the field looks right and the error makes no sense.
+will parse _that_ — the field looks right and the error makes no sense.
 
 ## Layout
 
@@ -143,7 +145,7 @@ cap the count beside them is the honest number. The circles are drawn by
 
 Every day in the two-week strip but today is graded by `dayBadge` and drawn by
 `DayBadge`. An unplanned entry is one negative; drinks are one negative per
-circle *started*, so the first drink already counts and the third opens a second
+circle _started_, so the first drink already counts and the third opens a second
 circle. No negatives and every planned slot checked is `gold`, no negatives and
 some checked is `green`, one negative is `silver`, two is `bad`, three or more
 is `terrible`. A day with nothing checked caps at `empty` unless its negatives
@@ -155,7 +157,7 @@ Every strip column but today's is a button opening that day, the same route a
 calendar cell takes. Today's is a plain element rather than a disabled button —
 `openPastDay` refuses `key >= today`, and the rail above is already showing it.
 Fourteen columns share the width of a phone, so the spacing between them is
-padding *inside* each column rather than a `gap` on the row: it looks identical
+padding _inside_ each column rather than a `gap` on the row: it looks identical
 and the touch zones tile instead of leaving a third of the strip dead.
 
 The calendar only looks backwards. `shiftMonth` clamps to the month `today`

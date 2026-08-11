@@ -1,29 +1,31 @@
 @import "tailwindcss";
 
-html {
-  background: #10262b;
-  color-scheme: dark;
-  scrollbar-width: none;
-  overscroll-behavior-y: none;
-}
+@layer base {
+  html {
+    background: #10262b;
+    color-scheme: dark;
+    scrollbar-width: none;
+    overscroll-behavior-y: none;
+  }
 
-html::-webkit-scrollbar {
-  display: none;
-}
+  html::-webkit-scrollbar {
+    display: none;
+  }
 
-body {
-  margin: 0;
-  /* Only the horizontal insets live here. An installed app sets its own height
-     from 100dvh, and adding the vertical insets on top of that would overflow
-     the viewport by exactly the notch and home indicator — which is a scrollbar
-     on every screen. The app frame folds those two into its own padding. */
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
-  -webkit-tap-highlight-color: transparent;
-  scrollbar-width: none;
-  overscroll-behavior-y: none;
-}
+  body {
+    margin: 0;
+    /* Only the horizontal insets live here. An installed app sets its own height
+       from 100dvh, and adding the vertical insets on top of that would overflow
+       the viewport by exactly the notch and home indicator — which is a scrollbar
+       on every screen. The app frame folds those two into its own padding. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    -webkit-tap-highlight-color: transparent;
+    scrollbar-width: none;
+    overscroll-behavior-y: none;
+  }
 
-body::-webkit-scrollbar {
-  display: none;
+  body::-webkit-scrollbar {
+    display: none;
+  }
 }

@@ -5,7 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 // Every build gets an id. A running copy of the app compares it against the
 // deployed version.json to notice a release it is missing — see src/update.js.
 // On CI the commit is the natural id; locally a timestamp keeps builds distinct.
-const buildId = process.env.GITHUB_SHA?.slice(0, 7) || `dev-${Date.now().toString(36)}`;
+const buildId =
+  process.env.GITHUB_SHA?.slice(0, 7) || `dev-${Date.now().toString(36)}`;
 
 // Publishes the build id next to the app so a running copy can fetch it. Emitted
 // by the build rather than kept in public/, since its contents change per build.

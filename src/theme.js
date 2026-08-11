@@ -39,7 +39,8 @@ export const C = {
 };
 
 export const FONT = {
-  display: '"Iowan Old Style","Palatino Linotype",Palatino,Georgia,ui-serif,serif',
+  display:
+    '"Iowan Old Style","Palatino Linotype",Palatino,Georgia,ui-serif,serif',
   body: 'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif',
   mono: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
 };
