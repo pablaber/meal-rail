@@ -1102,8 +1102,16 @@ export default function MealRail() {
                 confirmLabel="Erase everything"
                 onClose={() => setConfirmClearOpen(false)}
                 onConfirm={async () => {
+                  const ok = await clear();
+                  if (!ok) {
+                    setConfirmClearOpen(false);
+                    showNotice(
+                      "Couldn't erase history — this browser is blocking storage.",
+                      { failed: true },
+                    );
+                    return;
+                  }
                   setDays({});
-                  await clear();
                   setConfirmClearOpen(false);
                   showNotice("History erased");
                 }}
@@ -2873,6 +2881,11 @@ function ConfirmDialog({
   armMs = CONFIRM_ARM_MS,
 }) {
   const [armed, setArmed] = useState(armMs === 0);
+  const [submitting, setSubmitting] = useState(false);
+  // State does not update until the next render, so it cannot by itself stop
+  // two clicks delivered in the same frame. The ref closes that gap while the
+  // disabled state gives the user immediate feedback for the rest of the wait.
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     if (armMs === 0) return;
@@ -2880,29 +2893,47 @@ function ConfirmDialog({
     return () => clearTimeout(t);
   }, [armMs]);
 
+  const close = () => {
+    if (!submittingRef.current) onClose();
+  };
+
+  const confirm = async () => {
+    if (!armed || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await onConfirm();
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <Dialog title={title} eyebrow={eyebrow} ariaLabel={title} onClose={onClose}>
+    <Dialog title={title} eyebrow={eyebrow} ariaLabel={title} onClose={close}>
       <p className="mt-3 text-sm" style={{ color: C.muted }}>
         {message}
       </p>
       <div className="mt-5 flex items-center justify-end gap-2">
         <button
-          onClick={onClose}
-          className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          onClick={close}
+          disabled={submitting}
+          className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
           style={{ background: "transparent", color: C.muted }}
         >
           Cancel
         </button>
         <button
-          onClick={onConfirm}
-          disabled={!armed}
+          onClick={confirm}
+          disabled={!armed || submitting}
+          aria-busy={submitting}
           className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
           style={{
             background: armed ? C.red : C.surfaceHi,
             color: armed ? C.ground : C.muted,
           }}
         >
-          {confirmLabel}
+          {submitting ? "Working…" : confirmLabel}
         </button>
       </div>
     </Dialog>
