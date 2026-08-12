@@ -20,6 +20,7 @@ import {
 } from "./storage.js";
 import { BUILD_ID, checkForUpdate } from "./update.js";
 import {
+  SAMPLE_FORTNIGHT,
   dayBadge,
   daySummary,
   drinkCircles,
@@ -47,7 +48,21 @@ const DEFAULTS = {
   ],
   trainingEnabled: true,
   promptNotes: false,
+  // How the two-week strip draws a day. Two flat keys rather than one nested
+  // object: `load` and `restoreBackup` merge settings shallowly, so a backup
+  // written before a third option existed would replace the whole object and
+  // silently drop it. Separate keys each fall back on their own.
+  //
+  // The defaults are what the strip has always drawn, so an existing install
+  // and a fresh one look identical until someone chooses otherwise.
+  stripMark: "boxes",
+  stripGrade: "badge",
 };
+
+// The screens reached through history. Seeding the first view, the popstate
+// listener and the Escape key all read this list, so a new screen is added in
+// one place instead of three that can drift apart.
+const HISTORY_VIEWS = ["settings", "calendar", "day", "strip"];
 
 // A workout snack isn't a slot you can re-cut — it's one fixed kind of entry,
 // like an unplanned one, so its label is a constant rather than a setting.
@@ -114,6 +129,91 @@ const STRIP_COLUMN_CLASS =
 // them is the honest number; the circles are only ever the shape of the day.
 const DRINK_DOTS_MAX = 4;
 const STRIP_DRINK_DOTS = 3;
+
+// The marks that lay their negatives out *across* the column instead of up it
+// hold fewer of them: a column is about 21px wide, and two brass ticks plus two
+// drink circles with their gaps already spend 20 of it. Past the cap the day is
+// still graded on the true count — these marks were never the number, only the
+// shape of it. `boxes` keeps its two stacked bands and their taller caps.
+const STRIP_LINE_EXTRAS = 2;
+const STRIP_LINE_DRINKS = 2;
+
+// One capsule holding the whole day: meals rise from the bottom, negatives come
+// down from the top, and the gap left between them is how the day went.
+const STRIP_CAPSULE_H = 24;
+const STRIP_CAPSULE_FULL_H = 28;
+const STRIP_BAND_H = 3;
+const STRIP_BANDS_MAX = 4;
+
+// One segment per checked meal, stacked inside a track the height of the plan.
+const STRIP_SEG_H = 4;
+const STRIP_SEG_GAP = 1.5;
+const STRIP_SEG_W = 9;
+
+// What the settings screen calls each choice, and the one-line reason to pick
+// it. The strip screen reads these and so does the row on the settings screen
+// that says what is currently set, so the two can't drift.
+const STRIP_MARK_OPTIONS = [
+  {
+    id: "boxes",
+    label: "Boxes",
+    hint: "One box per meal, snacks and drinks below. The original.",
+  },
+  {
+    id: "capsule",
+    label: "Capsule",
+    hint: "The boxes become one bar that fills up. Shorter, and it stops growing when you add a meal slot.",
+  },
+  {
+    id: "capsuleFull",
+    label: "One capsule",
+    hint: "Everything in a single mark — meals rise, snacks and drinks fall from the top.",
+  },
+  {
+    id: "track",
+    label: "Tracked bar",
+    hint: "A segment per meal inside the day's full height, so an empty day reads as an empty box.",
+  },
+];
+
+const STRIP_GRADE_OPTIONS = [
+  {
+    id: "badge",
+    label: "Badge",
+    hint: "A shape under each column — a disc, a ring, a broken ring.",
+  },
+  {
+    id: "tint",
+    label: "Tinted date",
+    hint: "The day's number takes its grade's colour. Saves the most room.",
+  },
+  {
+    id: "none",
+    label: "None",
+    hint: "Just the marks. What you did, with nothing scoring it.",
+  },
+];
+
+// The tinted date, tier by tier. Text has to clear 4.5:1 on `ground`, which is
+// a higher bar than the badge's marks answer to, and it rules out the two
+// colours you would reach for first: `redDeepEdge` and `faint` are both 3.5:1
+// — theme.js reserves them for marks that stand alone with nothing written on
+// them, and a numeral is not that.
+//
+// So `terrible` takes a rule under the number instead of a second red. `bad`
+// and `terrible` are the same 5.0:1 red, told apart by shape, the way every
+// other grade on this strip is. `empty` lands on the date's own colour, which
+// is right twice over: it clears the floor at 5.3:1, and a day with nothing
+// checked should look unmarked. What separates it from a day with nothing
+// logged at all is the marks above, which is where that difference lives.
+const STRIP_TINT = {
+  gold: { color: C.gold, glow: true },
+  green: { color: C.done },
+  silver: { color: C.silver },
+  bad: { color: C.red },
+  terrible: { color: C.red, rule: true },
+  empty: { color: C.faintText },
+};
 
 // The four backup buttons tile a 2×2 grid. A grid only reads as one while every
 // cell is the same shape, so they take their width from the column rather than
@@ -217,7 +317,7 @@ export default function MealRail() {
   // comes back to the same screen.
   const [view, setView] = useState(() => {
     const v = window.history.state?.view;
-    return v === "settings" || v === "calendar" || v === "day" ? v : "today";
+    return HISTORY_VIEWS.includes(v) ? v : "today";
   });
   const [selectedDay, setSelectedDay] = useState(
     () => window.history.state?.day || null,
@@ -286,6 +386,13 @@ export default function MealRail() {
     setView("settings");
   };
 
+  // Its own history entry on top of settings, so back lands where you came
+  // from rather than at the day view.
+  const openStripSettings = () => {
+    window.history.pushState({ view: "strip" }, "");
+    setView("strip");
+  };
+
   const openCalendar = () => {
     setCalendarMonth(currentMonth);
     window.history.pushState({ view: "calendar" }, "");
@@ -326,9 +433,7 @@ export default function MealRail() {
       }
       const v = e.state?.view;
       setSelectedDay(v === "day" ? e.state?.day || null : null);
-      setView(
-        v === "settings" || v === "calendar" || v === "day" ? v : "today",
-      );
+      setView(HISTORY_VIEWS.includes(v) ? v : "today");
       setConfirmClearOpen(false);
       setEditing(null);
     };
@@ -336,14 +441,14 @@ export default function MealRail() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // Escape leaves settings, the calendar, or a past day, the way it leaves a
+  // Escape leaves any screen reached through history, the way it leaves a
   // dialog. A past day returns to the calendar that opened it, and a past day
   // being edited asks first if there is anything to lose.
   //
   // A dialog on top owns Escape outright: it listens too, and without this the
   // one press would close the dialog and walk out of the screen behind it.
   useEffect(() => {
-    if (view !== "settings" && view !== "calendar" && view !== "day") return;
+    if (!HISTORY_VIEWS.includes(view)) return;
     const onKey = (e) => {
       if (e.key !== "Escape") return;
       if (editing || confirmDiscard || confirmClearOpen || pasteOpen) return;
@@ -374,6 +479,24 @@ export default function MealRail() {
   }, []);
 
   const slots = settings.slots;
+
+  // `settings` can arrive from a hand-edited backup, so neither of these is
+  // trusted to name a real option — an unknown value falls back to the default
+  // rather than rendering nothing at all.
+  const stripMark = STRIP_MARK_OPTIONS.some((o) => o.id === settings.stripMark)
+    ? settings.stripMark
+    : DEFAULTS.stripMark;
+  const stripGrade = STRIP_GRADE_OPTIONS.some(
+    (o) => o.id === settings.stripGrade,
+  )
+    ? settings.stripGrade
+    : DEFAULTS.stripGrade;
+  const stripMarkLabel = STRIP_MARK_OPTIONS.find(
+    (o) => o.id === stripMark,
+  ).label;
+  const stripGradeLabel = STRIP_GRADE_OPTIONS.find(
+    (o) => o.id === stripGrade,
+  ).label;
 
   // The day every entry control below writes to. Today unless a past day is
   // open in the editor, in which case it is that day's draft — which is what
@@ -407,7 +530,22 @@ export default function MealRail() {
     persist(settings, nextDays);
   };
 
-  const writeSettings = (next) => {
+  // `settings` inside a click handler is the value from the render that made
+  // the handler. Two controls tapped before React re-renders would both spread
+  // that same object, and the first change would be quietly overwritten by the
+  // second — which is easy to do on the strip screen, where two groups of
+  // options sit one above the other. Patches read the live value from here
+  // instead of closing over it.
+  const settingsRef = useRef(settings);
+  // Kept current from two directions, and it needs both: this one catches
+  // settings arriving from a load or a restore, and the write inside the patch
+  // below is what makes two patches in the same tick compose — a re-render is
+  // too late for the second one to see the first.
+  settingsRef.current = settings;
+
+  const patchSettings = (patch) => {
+    const next = { ...settingsRef.current, ...patch };
+    settingsRef.current = next;
     setSettings(next);
     persist(next, days);
   };
@@ -1030,10 +1168,7 @@ export default function MealRail() {
             <span>Offer a workout snack</span>
             <button
               onClick={() =>
-                writeSettings({
-                  ...settings,
-                  trainingEnabled: !settings.trainingEnabled,
-                })
+                patchSettings({ trainingEnabled: !settings.trainingEnabled })
               }
               role="switch"
               aria-checked={settings.trainingEnabled}
@@ -1056,10 +1191,7 @@ export default function MealRail() {
             <span>Open notes after logging</span>
             <button
               onClick={() =>
-                writeSettings({
-                  ...settings,
-                  promptNotes: !settings.promptNotes,
-                })
+                patchSettings({ promptNotes: !settings.promptNotes })
               }
               role="switch"
               aria-checked={settings.promptNotes}
@@ -1077,6 +1209,23 @@ export default function MealRail() {
               />
             </button>
           </label>
+
+          {/* A screen rather than another switch: it has two questions in it
+              and a preview to answer them against, and neither fits on a row.
+              What is set shows here so the trip is only worth making to
+              change something. */}
+          <button
+            onClick={openStripSettings}
+            className="mt-4 flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm">Two-week strip</span>
+              <span className="mt-0.5 block text-xs" style={{ color: C.muted }}>
+                {stripMarkLabel} · {stripGradeLabel}
+              </span>
+            </span>
+            <IconChevronRight color={C.muted} />
+          </button>
         </section>
 
         {/* Four ways to move the data, in a grid that says which is which: a
@@ -1208,6 +1357,123 @@ export default function MealRail() {
             </button>
           </div>
         </div>
+      </Screen>
+    );
+  }
+
+  if (view === "strip") {
+    return (
+      <Screen>
+        <header className="flex items-start gap-3">
+          <button
+            onClick={goBack}
+            aria-label="Back"
+            className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.surface }}
+          >
+            <IconBack color={C.chalk} />
+          </button>
+          <h1
+            className="text-3xl leading-tight"
+            style={{ fontFamily: FONT.display }}
+          >
+            Two-week strip
+          </h1>
+        </header>
+
+        <section className="mt-8">
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            Marks
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="How each day is drawn"
+            className="mt-2"
+          >
+            {STRIP_MARK_OPTIONS.map((o) => (
+              <ChoiceRow
+                key={o.id}
+                label={o.label}
+                hint={o.hint}
+                selected={stripMark === o.id}
+                onSelect={() => patchSettings({ stripMark: o.id })}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section
+          className="mt-6 pt-6"
+          style={{ borderTop: `1px solid ${C.rail}` }}
+        >
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            Grade
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="How a finished day is graded"
+            className="mt-2"
+          >
+            {STRIP_GRADE_OPTIONS.map((o) => (
+              <ChoiceRow
+                key={o.id}
+                label={o.label}
+                hint={o.hint}
+                selected={stripGrade === o.id}
+                onSelect={() => patchSettings({ stripGrade: o.id })}
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* The preview sits at the foot of the screen, where the real strip
+            sits on the day view — so what you are judging is in the place you
+            will be looking at it. It is docked there rather than merely placed
+            there: seven options with a line of explanation each are taller than
+            a phone, and a preview you have to scroll away from the controls to
+            see is a preview you can't use. `mt-auto` handles the short-content
+            case, `sticky` the tall one, and the inset keeps it off the home
+            indicator — Screen's own bottom padding is outside the scrollport
+            this sticks to.
+
+            The row is hidden from screen readers: every mark in it is already
+            described by the option that drew it, and fourteen sample days
+            announcing their grades would bury the controls. */}
+        <section
+          className="sticky bottom-0 mt-auto pt-5"
+          style={{
+            background: C.ground,
+            borderTop: `1px solid ${C.rail}`,
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+        >
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            Preview
+          </p>
+          <div
+            className="mt-3 flex items-end justify-between"
+            aria-hidden="true"
+          >
+            {SAMPLE_FORTNIGHT.map((d) => (
+              <div key={d.key} className={STRIP_COLUMN_CLASS}>
+                <StripDay d={d} mark={stripMark} grade={stripGrade} />
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs" style={{ color: C.muted }}>
+            Sample days, not yours — a real fortnight wouldn't show every grade.
+          </p>
+          <StatusLine saveError={saveError} notice={notice} saving={saving} />
+        </section>
       </Screen>
     );
   }
@@ -1427,9 +1693,12 @@ export default function MealRail() {
           {history.map((d) =>
             d.isToday ? (
               <div key={d.key} className={STRIP_COLUMN_CLASS}>
-                <StripDay d={d} />
+                <StripDay d={d} mark={stripMark} grade={stripGrade} />
               </div>
             ) : (
+              // The label carries the grade whatever the marks are set to, so
+              // turning the badge off changes how the strip looks and not what
+              // it says.
               <button
                 key={d.key}
                 onClick={() => openPastDay(d.key)}
@@ -1438,7 +1707,7 @@ export default function MealRail() {
                 }`}
                 className={`${STRIP_COLUMN_CLASS} rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
               >
-                <StripDay d={d} />
+                <StripDay d={d} mark={stripMark} grade={stripGrade} />
               </button>
             ),
           )}
@@ -2514,11 +2783,47 @@ function IconChevronRight({ color }) {
   );
 }
 
-// The stack of marks inside one strip column: meal boxes bottom-up, snack
-// ticks, drinks, the verdict, the date. Only the contents — the column that
-// holds them is a button or a plain box depending on whether the day can be
-// opened, and it owns the sizing either way.
-function StripDay({ d }) {
+// The contents of one strip column, in whichever shape the strip is set to.
+// Only the contents — the column that holds them is a button or a plain box
+// depending on whether the day can be opened, and it owns the sizing either way.
+//
+// Every mark below draws the same four facts: how many meals were planned and
+// how many were checked, unplanned snacks, drinks. They differ in how much
+// height that costs and in what the shape says first. The grade and the date
+// are common to all of them, which is why they live out here — the two settings
+// are independent, and any mark can wear any grade.
+const STRIP_MARKS = {
+  boxes: StripBoxes,
+  capsule: StripCapsule,
+  capsuleFull: StripCapsuleFull,
+  track: StripTrack,
+};
+
+function StripDay({
+  d,
+  mark = DEFAULTS.stripMark,
+  grade = DEFAULTS.stripGrade,
+}) {
+  const Mark = STRIP_MARKS[mark] || STRIP_MARKS[DEFAULTS.stripMark];
+  return (
+    <>
+      <Mark d={d} />
+      {/* The verdict on a finished day. A fixed height, so the days without one
+          keep their numbers on the same baseline. */}
+      {grade === "badge" && (
+        <div className="flex h-[13px] items-center justify-center">
+          {d.badge && <DayBadge tier={d.badge} />}
+        </div>
+      )}
+      <StripDate d={d} tinted={grade === "tint"} />
+    </>
+  );
+}
+
+// The original: one box per planned slot, filled bottom-up, with snacks and
+// drinks in two bands under them. The bands are separate and vertical, which is
+// what lets them hold three marks each where the flatter marks below hold two.
+function StripBoxes({ d }) {
   return (
     <>
       <div className="flex flex-col-reverse gap-[3px]">
@@ -2549,21 +2854,216 @@ function StripDay({ d }) {
             <DrinkDot key={i} size={6} fill={fill} />
           ))}
       </div>
-      {/* The verdict on a finished day. A fixed height, so the days without one
-          keep their numbers on the same baseline. */}
-      <div className="flex h-[13px] items-center justify-center">
-        {d.badge && <DayBadge tier={d.badge} />}
-      </div>
+    </>
+  );
+}
+
+// The boxes drawn as one bar with the seams left in. Its height is fixed, so
+// unlike the boxes it doesn't grow when a slot is added to the plan or when a
+// workout snack lifts one day above its neighbours.
+function StripCapsule({ d }) {
+  return (
+    <>
+      <StripFill d={d} height={STRIP_CAPSULE_H} />
+      <StripNegatives d={d} />
+    </>
+  );
+}
+
+// Everything in a single mark. Meals rise from the bottom and negatives come
+// down from the top, so the gap left in the middle is how the day went: a clean
+// full day closes it from below, a bad one closes it from above. They can meet,
+// and a capsule with nothing left in it is the right picture for that day.
+function StripCapsuleFull({ d }) {
+  const bands = [
+    ...Array.from({ length: Math.min(d.extra, STRIP_BANDS_MAX) }, () => 1),
+    // A half circle becomes a half-width band rather than a paler red: the
+    // same "half a drink" the circles say, in the one language this mark has.
+    ...drinkCircles(d.drinks).slice(0, STRIP_BANDS_MAX),
+  ].slice(0, STRIP_BANDS_MAX);
+  const extras = Math.min(d.extra, STRIP_BANDS_MAX);
+
+  return (
+    <StripFill d={d} height={STRIP_CAPSULE_FULL_H} width={8}>
+      {bands.map((fill, i) => (
+        <span
+          key={i}
+          className="absolute block rounded-[1px]"
+          style={{
+            top: i * (STRIP_BAND_H + 1),
+            height: STRIP_BAND_H,
+            // Centred, so a half-width drink band still reads as part of the
+            // column rather than as something stuck to one edge.
+            left: `${((1 - fill) / 2) * 100}%`,
+            right: `${((1 - fill) / 2) * 100}%`,
+            background: i < extras ? C.brass : C.red,
+          }}
+        />
+      ))}
+    </StripFill>
+  );
+}
+
+// The capsule both capsule marks are made of: a track the height of the day,
+// filled from the bottom by what was checked, with a hairline where each box
+// seam used to be. Anything else the mark wants to draw inside it comes in as
+// children and lands on top of the fill.
+function StripFill({ d, height, width = 7, children }) {
+  const planned = Math.max(d.planned, 1);
+  // A day whose plan shrank after it was logged can hold more checks than it
+  // planned. The fill is clamped rather than allowed past the top, where it
+  // would say "more than full" in a mark that has no way to mean that.
+  const filled = Math.min(d.checks, planned) / planned;
+
+  return (
+    <span
+      className="relative block overflow-hidden rounded-full"
+      style={{ width, height, background: C.faint }}
+    >
       <span
-        className="text-[10px]"
+        className="absolute inset-x-0 bottom-0 block"
+        style={{ height: `${filled * 100}%`, background: C.done }}
+      />
+      {Array.from({ length: planned - 1 }).map((_, i) => (
+        <span
+          key={i}
+          className="absolute inset-x-0 block h-px"
+          style={{
+            bottom: `${((i + 1) / planned) * 100}%`,
+            background: C.ground,
+          }}
+        />
+      ))}
+      {children}
+    </span>
+  );
+}
+
+// A segment per checked meal, stacked inside a track the height of the whole
+// plan. What the capsule says as a proportion this says as a count you can read
+// off — and an untouched day is an empty box rather than a mark you have to
+// look twice at. Negatives sit above the rim: they were never part of the day's
+// capacity, so they don't belong inside the thing that measures it.
+function StripTrack({ d }) {
+  const planned = Math.max(d.planned, 1);
+  const checks = Math.min(d.checks, planned);
+  const height = planned * STRIP_SEG_H + (planned - 1) * STRIP_SEG_GAP + 4;
+
+  const seg = (background, key, width = STRIP_SEG_W) => (
+    <span
+      key={key}
+      className="block shrink-0 rounded-[1.5px]"
+      style={{ width, height: STRIP_SEG_H, background }}
+    />
+  );
+
+  return (
+    <div className="flex flex-col items-center gap-[2px]">
+      <div
+        className="flex flex-col-reverse items-center"
+        style={{ gap: STRIP_SEG_GAP, minHeight: STRIP_SEG_H }}
+      >
+        {Array.from({ length: Math.min(d.extra, STRIP_LINE_EXTRAS) }).map(
+          (_, i) => seg(C.brass, `x${i}`, STRIP_SEG_W - 2),
+        )}
+        {drinkCircles(d.drinks)
+          .slice(0, STRIP_LINE_DRINKS)
+          .map((fill, i) => seg(C.red, `d${i}`, (STRIP_SEG_W - 2) * fill))}
+      </div>
+      <div
+        className="flex flex-col-reverse items-center justify-start rounded-[3px] p-[2px]"
         style={{
-          color: d.isToday ? C.chalk : C.faintText,
-          fontFamily: FONT.mono,
+          height,
+          width: STRIP_SEG_W + 4,
+          gap: STRIP_SEG_GAP,
+          background: C.surface,
+          boxShadow: `inset 0 0 0 1px ${C.rail}`,
         }}
       >
-        {d.key.slice(8)}
+        {Array.from({ length: checks }).map((_, i) => seg(C.done, i))}
+      </div>
+    </div>
+  );
+}
+
+// Snacks and drinks on one line instead of two stacked bands. Flatter than the
+// bands by about ten pixels, and it holds fewer marks for it — see
+// `STRIP_LINE_EXTRAS`.
+function StripNegatives({ d }) {
+  return (
+    <div className="flex h-[7px] items-center justify-center gap-[2px]">
+      {Array.from({ length: Math.min(d.extra, STRIP_LINE_EXTRAS) }).map(
+        (_, i) => (
+          <span
+            key={i}
+            className="block h-[5px] w-[2px] rounded-full"
+            style={{ background: C.brass }}
+          />
+        ),
+      )}
+      {drinkCircles(d.drinks)
+        .slice(0, STRIP_LINE_DRINKS)
+        .map((fill, i) => (
+          <DrinkDot key={i} size={5} fill={fill} />
+        ))}
+    </div>
+  );
+}
+
+// The day of the month, and — when the strip is set to tint it — the day's
+// grade. Today is chalk whatever the setting: it has no grade to wear, and it
+// is the one column the eye should find first.
+function StripDate({ d, tinted }) {
+  const tint = tinted && d.badge ? STRIP_TINT[d.badge] : null;
+
+  return (
+    <span
+      className="text-[10px]"
+      style={{
+        color: d.isToday ? C.chalk : tint?.color || C.faintText,
+        fontFamily: FONT.mono,
+        textShadow: tint?.glow ? `0 0 6px ${C.goldGlow}` : undefined,
+        // `terrible` and `bad` are the same red, because the two colours that
+        // would have separated them are both too faint to put a numeral in.
+        // A rule under the worst day does the job colour can't.
+        borderBottom: tint?.rule ? `1px solid ${tint.color}` : undefined,
+      }}
+    >
+      {d.key.slice(8)}
+    </span>
+  );
+}
+
+// One row of a radio group: the label, why you'd pick it, and a dot. A button
+// with `role="radio"` rather than an <input>, to match the switches on the
+// settings screen — they are the same kind of control and should feel it.
+function ChoiceRow({ label, hint, selected, onSelect }) {
+  return (
+    <button
+      onClick={onSelect}
+      role="radio"
+      aria-checked={selected}
+      className="mt-1 flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      style={{ background: selected ? C.surface : "transparent" }}
+    >
+      <span
+        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+        style={{ border: `1px solid ${selected ? C.done : C.faint}` }}
+      >
+        {selected && (
+          <span
+            className="block h-2 w-2 rounded-full"
+            style={{ background: C.done }}
+          />
+        )}
       </span>
-    </>
+      <span className="min-w-0">
+        <span className="block text-sm">{label}</span>
+        <span className="mt-0.5 block text-xs" style={{ color: C.muted }}>
+          {hint}
+        </span>
+      </span>
+    </button>
   );
 }
 

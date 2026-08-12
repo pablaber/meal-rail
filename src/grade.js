@@ -42,6 +42,49 @@ export function daySummary(days, key, defaultPlanned, isToday) {
   return { ...entry, badge: isToday ? null : dayBadge(entry) };
 }
 
+// The fortnight the strip settings preview draws. It is made up, and it says so
+// on screen: a real fortnight is whatever it happened to be, and a clean one
+// shows none of the grades you are choosing between.
+//
+// It lives here rather than beside the screen that draws it because what makes
+// it correct is a property of grading — every tier has to appear, or the
+// preview quietly stops showing the thing being configured — and the test that
+// holds that line needs to import it. The badges come from `dayBadge` for the
+// same reason: a preview that graded its own days could lie about the rules.
+//
+// `bad` and `terrible` sit next to each other on purpose. They are the two the
+// tinted date has the hardest time telling apart, so they belong side by side
+// where the difference either reads or doesn't.
+const SAMPLE_SEED = [
+  { checks: 4, extra: 0, drinks: 0 }, // gold
+  { checks: 3, extra: 0, drinks: 0 }, // green
+  { checks: 4, extra: 1, drinks: 0 }, // silver
+  { checks: 2, extra: 0, drinks: 0 }, // green
+  { checks: 4, extra: 0, drinks: 0 }, // gold
+  { checks: 0, extra: 0, drinks: 0 }, // nothing logged at all
+  { checks: 3, extra: 2, drinks: 0 }, // bad
+  { checks: 1, extra: 2, drinks: 2 }, // terrible
+  { checks: 4, extra: 0, drinks: 0 }, // gold
+  { checks: 0, extra: 1, drinks: 0 }, // empty
+  { checks: 4, extra: 0, drinks: 2 }, // silver
+  { checks: 3, extra: 1, drinks: 1 }, // bad
+  { checks: 3, extra: 0, drinks: 0 }, // green
+  { checks: 2, extra: 0, drinks: 0 }, // today, part way through
+];
+
+const SAMPLE_PLANNED = 4;
+
+export const SAMPLE_FORTNIGHT = SAMPLE_SEED.map((s, i) => {
+  const entry = {
+    // A month that reads as a date without pretending to be one of yours.
+    key: `2026-01-${String(i + 1).padStart(2, "0")}`,
+    planned: SAMPLE_PLANNED,
+    isToday: i === SAMPLE_SEED.length - 1,
+    ...s,
+  };
+  return { ...entry, badge: entry.isToday ? null : dayBadge(entry) };
+});
+
 // A hollow record is removed instead of being persisted.
 export function isEmptyDay(r) {
   return (
