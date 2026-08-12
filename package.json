@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "TZ=America/Detroit node --test",
+    "test:watch": "TZ=America/Detroit node --test --watch",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

@@ -19,6 +19,25 @@ import {
   importText,
 } from "./storage.js";
 import { BUILD_ID, checkForUpdate } from "./update.js";
+import {
+  dayBadge,
+  daySummary,
+  drinkCircles,
+  isEmptyDay,
+  plannedBase,
+  summarize,
+} from "./grade.js";
+import {
+  RETENTION_DAYS,
+  dateAt,
+  dayHeadings,
+  dayKey,
+  formatDate,
+  formatDateShort,
+  shiftDay,
+  stampOn,
+  trimDays,
+} from "./day.js";
 
 const DEFAULTS = {
   slots: [
@@ -45,11 +64,6 @@ const BACKFILL_TIMES = ["08:00", "13:00", "19:00"];
 const BACKFILL_FALLBACK = "12:00";
 const BACKFILL_SNACK = "15:00";
 const BACKFILL_WORKOUT = "17:00";
-
-// Days older than this are trimmed on every save (see `persist`), so a
-// correction to one would be thrown away the moment it was written. The
-// past-day screen refuses to edit them for exactly that reason.
-const RETENTION_DAYS = 400;
 
 // How long a notice sits in the status line before clearing itself. A notice
 // reports something the app just did, so nothing but the clock can retire one —
@@ -96,24 +110,10 @@ const ROW_TIME_CLASS = "text-xs";
 const STRIP_COLUMN_CLASS =
   "flex flex-1 flex-col items-center gap-1 px-[2px] py-1";
 
-// Two drinks fill one circle — Canada's 2023 guidance says not to exceed two on
-// any day, so a full circle is exactly the ceiling and one drink sits visibly
-// half way there. Everything past that keeps accruing circles.
-const DRINKS_PER_CIRCLE = 2;
-
 // How many circles each surface has room for. Past the cap the count beside
 // them is the honest number; the circles are only ever the shape of the day.
 const DRINK_DOTS_MAX = 4;
 const STRIP_DRINK_DOTS = 3;
-
-// [1, 1, 0.5] for five drinks — whole circles first, the remainder last.
-const drinkCircles = (n) => {
-  const out = [];
-  for (let i = 0; i < Math.floor(n / DRINKS_PER_CIRCLE); i++) out.push(1);
-  const rem = (n % DRINKS_PER_CIRCLE) / DRINKS_PER_CIRCLE;
-  if (rem > 0) out.push(rem);
-  return out;
-};
 
 // The four backup buttons tile a 2×2 grid. A grid only reads as one while every
 // cell is the same shape, so they take their width from the column rather than
@@ -121,22 +121,6 @@ const drinkCircles = (n) => {
 const DATA_BUTTON_CLASS =
   "w-full rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white";
 const DATA_BUTTON_STYLE = { background: C.surfaceHi, color: C.chalk };
-
-// A finished day gets graded on what it ended up looking like. An unplanned
-// entry is one negative; drinks are one negative per circle *started*, so the
-// first drink already counts and the third opens a second circle — the grade
-// moves with DRINKS_PER_CIRCLE rather than restating it.
-const dayBadge = ({ planned, checks, extra, drinks }) => {
-  if (checks === 0 && extra === 0 && drinks === 0) return null;
-  const negatives = extra + Math.ceil(drinks / DRINKS_PER_CIRCLE);
-  if (negatives >= 3) return "terrible";
-  if (negatives === 2) return "bad";
-  // A day with no meals on it can't be talked up by a light night: it caps at
-  // "empty" unless the negatives alone already earned something worse.
-  if (checks === 0) return "empty";
-  if (negatives === 1) return "silver";
-  return checks >= planned ? "gold" : "green";
-};
 
 const BADGE_SIZE = 11;
 
@@ -179,87 +163,6 @@ const CALENDAR_TIER = {
   empty: { background: C.rail, color: C.chalk },
 };
 
-const dayKey = (d = new Date()) => {
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
-
-// The grading inputs for one record, without a date attached. The past-day
-// editor grades a draft that isn't in `days` yet, so this is the half of
-// `daySummary` that doesn't need to look a day up.
-const summarize = (r, defaultPlanned) => ({
-  planned: r?.planned ?? defaultPlanned,
-  checks: r
-    ? Object.keys(r.checks || {}).length + (r.workouts || []).length
-    : 0,
-  extra: r ? (r.unplanned || []).length : 0,
-  drinks: r?.drinks || 0,
-});
-
-// The grading inputs for a single date, shared by the two-week strip and the
-// calendar so the same day always earns the same badge in both places. Today
-// is carried in rather than resolved with a fresh `new Date()` here, so a
-// midnight rollover under an open calendar can't grade the day still being
-// written.
-const daySummary = (days, key, defaultPlanned, isToday) => {
-  const entry = { key, ...summarize(days[key], defaultPlanned), isToday };
-  return { ...entry, badge: isToday ? null : dayBadge(entry) };
-};
-
-// Local midnight on a day key. Every date the app formats or shifts goes
-// through here, so nothing is ever tempted to parse "YYYY-MM-DD" as UTC.
-const dateAt = (key) => {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m - 1, d);
-};
-
-const shiftDay = (key, delta) => {
-  const dt = dateAt(key);
-  dt.setDate(dt.getDate() + delta);
-  return dayKey(dt);
-};
-
-const formatDate = (key) =>
-  dateAt(key).toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
-// Short enough for a dialog eyebrow, which is where it says which day the
-// entry under the editor belongs to.
-const formatDateShort = (key) =>
-  dateAt(key).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-
-// The wordings a day screen can title itself with, longest first, for
-// `FitHeading` to work down. The year is what pushes this past the width of a
-// narrow phone, and on a day in the year you are standing in it says nothing you
-// didn't know — so it only shows up when the day is in another one.
-const dayHeadings = (key, todayKey) => {
-  const year =
-    key.slice(0, 4) === todayKey.slice(0, 4) ? {} : { year: "numeric" };
-  const d = dateAt(key);
-  return [
-    d.toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      ...year,
-    }),
-    d.toLocaleDateString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      ...year,
-    }),
-  ];
-};
-
 const clock = (iso) =>
   new Date(iso).toLocaleTimeString(undefined, {
     hour: "numeric",
@@ -290,36 +193,6 @@ const fromTimeField = (key, value, iso) => {
     prev.getMilliseconds(),
   ).toISOString();
 };
-
-// The same rebuild for an entry that has no previous timestamp to keep the
-// seconds from: a backfilled entry belongs to the day being edited, not to the
-// moment it was typed in.
-const stampOn = (key, value) => {
-  const [hh, mm] = value.split(":").map(Number);
-  const d = dateAt(key);
-  d.setHours(hh, mm, 0, 0);
-  return d.toISOString();
-};
-
-// A day with nothing on it at all. Saving one of these deletes the key rather
-// than writing a hollow record, so opening a blank day and backing out again
-// leaves storage exactly as it was — the same instinct as writing `undefined`
-// for `drinks` rather than `0`.
-const isEmptyDay = (r) =>
-  !Object.keys(r.checks || {}).length &&
-  !(r.unplanned || []).length &&
-  !(r.workouts || []).length &&
-  !(r.drinks || 0);
-
-// What a day is being measured against, before workouts are added on top.
-// Today answers with the current plan. A past day answers with the count it was
-// written with, so correcting one can never rewrite what it was graded against
-// — and a day with no record at all falls back to today's plan, which is the
-// only answer available when backfilling.
-const plannedBase = (r, slots) =>
-  typeof r?.planned === "number"
-    ? Math.max(0, r.planned - (r.workouts || []).length)
-    : slots.length;
 
 const BLANK_DAY = { checks: {}, notes: {}, unplanned: [], workouts: [] };
 
@@ -494,11 +367,7 @@ export default function MealRail() {
 
   const persist = useCallback(async (nextSettings, nextDays) => {
     setSaving(true);
-    const trimmed = {};
-    const cutoff = shiftDay(dayKey(), -RETENTION_DAYS);
-    Object.keys(nextDays).forEach((k) => {
-      if (k >= cutoff) trimmed[k] = nextDays[k];
-    });
+    const trimmed = trimDays(nextDays);
     const ok = await save({ settings: nextSettings, days: trimmed });
     setSaveError(!ok);
     setSaving(false);

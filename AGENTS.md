@@ -10,11 +10,12 @@ npm install
 npm run dev      # vite dev server
 npm run build    # production build to dist/
 npm run preview  # serve the built output
+npm test         # run domain tests with Node's built-in test runner
 npm run lint     # JavaScript/JSX and theme-color checks
 npm run format:check # verify formatting
 ```
 
-Node 26 (`.nvmrc`). There is no test or typecheck step — run lint and formatting
+Node 26 (`.nvmrc`). There is no typecheck step — run tests, lint, and formatting
 checks, then verify behavioral changes by running the app.
 
 ## Previewing a dev build
@@ -59,7 +60,9 @@ will parse _that_ — the field looks right and the error makes no sense.
 
 ```
 src/main.jsx      entry point; starts the service worker and the update check
-src/App.jsx       the entire UI — one component plus DayRail and the row/dialog parts
+src/App.jsx       the UI — one component plus DayRail and the row/dialog parts
+src/grade.js      pure grading and day-record domain helpers
+src/day.js        pure local-date and retention helpers
 src/storage.js    persistence; the only file that touches a storage API
 src/theme.js      color and font constants
 src/haptics.js    the buzz under the finger, delegated from one listener
