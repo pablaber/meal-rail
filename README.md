@@ -24,6 +24,7 @@ npm run dev
 Before opening a pull request, run the same checks as CI:
 
 ```bash
+npm test
 npm run lint
 npm run format:check
 npm run build
@@ -35,8 +36,9 @@ semicolon formatting conventions.
 ## How it's put together
 
 React and Vite, with Tailwind for layout and a small palette in `theme.js` for
-everything visual. `src/App.jsx` is the whole UI; `src/storage.js` is the only file
-that touches a storage API.
+everything visual. `src/App.jsx` holds the UI, while `src/grade.js` and
+`src/day.js` hold the tested domain logic. `src/storage.js` is the only file that
+touches a storage API.
 
 ## About the data
 
