@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build production site
+    name: Test and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
