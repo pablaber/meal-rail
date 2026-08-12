@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  SAMPLE_FORTNIGHT,
   dayBadge,
   daySummary,
   drinkCircles,
@@ -92,4 +93,27 @@ test("isEmptyDay ignores hollow optional fields but detects every entry type", (
   assert.equal(isEmptyDay({ unplanned: [{}] }), false);
   assert.equal(isEmptyDay({ workouts: [{}] }), false);
   assert.equal(isEmptyDay({ drinks: 1 }), false);
+});
+
+test("the strip preview's sample fortnight shows every grade", () => {
+  const tiers = new Set(SAMPLE_FORTNIGHT.map((d) => d.badge));
+  // Every tier the strip can draw, plus an ungraded day and today. Without
+  // this the seed can drift until the preview no longer shows the grade you
+  // are picking a treatment for.
+  for (const tier of ["gold", "green", "silver", "bad", "terrible", "empty"]) {
+    assert.ok(tiers.has(tier), `sample fortnight is missing ${tier}`);
+  }
+  assert.ok(
+    SAMPLE_FORTNIGHT.some((d) => !d.isToday && d.badge === null),
+    "sample fortnight should include a day with nothing logged",
+  );
+
+  assert.equal(SAMPLE_FORTNIGHT.length, 14);
+  assert.equal(SAMPLE_FORTNIGHT.at(-1).isToday, true);
+  assert.equal(SAMPLE_FORTNIGHT.at(-1).badge, null);
+  assert.equal(
+    SAMPLE_FORTNIGHT.filter((d) => d.isToday).length,
+    1,
+    "only the last column is today",
+  );
 });

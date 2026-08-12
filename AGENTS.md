@@ -121,7 +121,10 @@ One JSON blob under the `mealrail:v1` key:
 
 ```js
 {
-  settings: { slots: [{ id, label }], trainingEnabled, promptNotes },
+  settings: {
+    slots: [{ id, label }], trainingEnabled, promptNotes,
+    stripMark, stripGrade,        // how the two-week strip draws a day
+  },
   days: {
     "YYYY-MM-DD": {
       checks: { [slotId]: isoTimestamp },
@@ -182,6 +185,35 @@ is `terrible`. A day with nothing checked caps at `empty` unless its negatives
 alone earned worse, and a day with no entries at all gets nothing. Grades are
 derived at render time — nothing about them is persisted, so old backups load
 unchanged.
+
+How the strip _draws_ that is the one thing in the app with a preferences
+screen. `stripMark` picks between four marks — `boxes` (the original, and the
+default), `capsule`, `capsuleFull`, `track` — and `stripGrade` picks between
+`badge` (the default), `tint` and `none`. They are independent: any mark wears
+any grade, which is why `StripDay` draws the mark from a lookup and the grade
+and date itself. Settings → Two-week strip has both, over a preview of
+`SAMPLE_FORTNIGHT` docked at the foot of the screen, where the real strip sits.
+
+Two flat keys rather than one nested object, because `load` and
+`restoreBackup` merge settings **shallowly** — a backup written before a third
+key existed would replace the whole object and silently drop it. For the same
+reason both are validated against the option lists on the way out of `settings`
+rather than trusted: they can arrive from a hand-edited backup, and an unknown
+value falls back to the default instead of rendering nothing.
+
+`none` draws no grade at all, and that is allowed. The column's `aria-label`
+states it either way, so the setting changes how the strip looks and not what it
+says. `tint` can't use `redDeepEdge` or `faint` — both 3.5:1, under the 4.5:1
+floor a numeral has to clear — so `terrible` is `red` with a rule under it and
+`empty` is the date's own `faintText`. Don't "fix" those two back to the badge's
+colours; see `STRIP_TINT`. None of this reaches the calendar, which has its own
+constraint: a numeral sits _inside_ the disc there, so every tier is a flat fill.
+
+The preview's fourteen days are made up and say so on screen. They live in
+`grade.js` as `SAMPLE_FORTNIGHT` and take their badges from `dayBadge`, so the
+preview can't lie about the rules, and a test asserts every tier appears — a
+real fortnight shows whichever grades it happened to earn, which is none of the
+ones you are choosing between if the fortnight went well.
 
 Every strip column but today's is a button opening that day, the same route a
 calendar cell takes. Today's is a plain element rather than a disabled button —
