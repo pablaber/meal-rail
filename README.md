@@ -58,10 +58,3 @@ but take a backup occasionally.
 If you later want real sync, `storage.js` is the seam: `load()` and `save()` are
 already async, so swapping their bodies for `fetch()` against a small service is a
 change to one file. Nothing in `App.jsx` needs to know.
-
-## Things worth adding next
-
-- A note field on unplanned entries (what it was, where you were) — likely more
-  informative than any count
-- Notifications at slot times, if the reminder turns out to be the useful part
-- A weekday-vs-weekend split in the history view
