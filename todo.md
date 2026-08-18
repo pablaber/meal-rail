@@ -185,11 +185,8 @@ These are known-broken and reproducible, as distinct from the improvements below
 
 ## Housekeeping
 
-- [ ] **Delete the README's "Things worth adding next" section** rather than
-  updating it. It is confirmed stale — it lists a note field on unplanned entries
-  as future work, but `EditDialog` and `UnplannedRow` shipped that — and its two
-  remaining items duplicate entries in this file. Two roadmaps will drift again.
-- [ ] Delete `.context/todos.md`; it is a 0-byte leftover.
+- [x] Delete the README's "Things worth adding next" section and the 0-byte
+  `.context/todos.md` leftover.
 - [ ] Low priority: `exportFile` revokes its object URL synchronously after
   `a.click()` on a detached anchor (`storage.js:104-112`). This works in Safari
   and Chrome today, so it is a portability nit rather than a bug; a deferred
