@@ -36,6 +36,12 @@ export const C = {
   redDeepEdge: "#9D6A67",
   sheen: "rgba(255,255,255,0.4)",
   scrim: "rgba(8,20,23,0.72)",
+  // The weekend backdrop on the two-week strip: a wash low-contrast enough to
+  // read as a zone rather than a grade, plus the seam that keeps Saturday and
+  // Sunday legible as two days inside the one container.
+  weekendWash: "rgba(216,166,87,0.09)",
+  weekendEdge: "rgba(216,166,87,0.16)",
+  weekendSeam: "rgba(216,166,87,0.3)",
 };
 
 export const FONT = {
