@@ -773,10 +773,30 @@ export default function MealRail() {
     const out = [];
     for (let i = 13; i >= 0; i--) {
       const k = shiftDay(today, -i);
-      out.push(daySummary(days, k, settings.slots.length, k === today));
+      const dow = dateAt(k).getDay();
+      out.push({
+        ...daySummary(days, k, settings.slots.length, k === today),
+        isWeekend: dow === 0 || dow === 6,
+      });
     }
     return out;
   }, [days, today, settings.slots.length]);
+
+  // Contiguous runs of weekend days in the strip, as column indices. Usually
+  // one or two full Saturday+Sunday pairs, but a run can be a single day when
+  // the fourteen-day window starts or ends mid-weekend. The backdrop drawn
+  // behind the strip is one shape per run rather than one per day, so the
+  // weekend reads as a unit.
+  const weekendSpans = useMemo(() => {
+    const spans = [];
+    history.forEach((d, idx) => {
+      if (!d.isWeekend) return;
+      const last = spans[spans.length - 1];
+      if (last && last.end === idx - 1) last.end = idx;
+      else spans.push({ start: idx, end: idx });
+    });
+    return spans;
+  }, [history]);
 
   const atCurrentMonth =
     calendarMonth.year === currentMonth.year &&
@@ -1689,10 +1709,36 @@ export default function MealRail() {
             does. Today's is a plain element rather than a dead button, because
             `openPastDay` refuses it — the strip's last column is the day the
             rail above is already showing. */}
-        <div className="mt-4 flex items-end justify-between">
+        <div className="relative mt-4 flex items-end justify-between">
+          {/* One wash per weekend run, not one per day — Saturday and Sunday
+              read as a single "the weekend" zone. The seam between them stays
+              so the pair doesn't lose the fact that it's two days. */}
+          {weekendSpans.map((span) => (
+            <div
+              key={`weekend-${span.start}`}
+              aria-hidden="true"
+              className="absolute -top-1.5 -bottom-1 rounded-xl"
+              style={{
+                left: `${(span.start / history.length) * 100}%`,
+                width: `${((span.end - span.start + 1) / history.length) * 100}%`,
+                background: C.weekendWash,
+                boxShadow: `inset 0 0 0 1px ${C.weekendEdge}`,
+              }}
+            >
+              {span.end > span.start && (
+                <div
+                  className="absolute inset-y-1 w-px"
+                  style={{
+                    left: `${(100 / (span.end - span.start + 1)) * 1}%`,
+                    background: C.weekendSeam,
+                  }}
+                />
+              )}
+            </div>
+          ))}
           {history.map((d) =>
             d.isToday ? (
-              <div key={d.key} className={STRIP_COLUMN_CLASS}>
+              <div key={d.key} className={`${STRIP_COLUMN_CLASS} relative`}>
                 <StripDay d={d} mark={stripMark} grade={stripGrade} />
               </div>
             ) : (
@@ -1705,7 +1751,7 @@ export default function MealRail() {
                 aria-label={`Open ${formatDate(d.key)}${
                   d.badge ? `, ${BADGE_LABEL[d.badge]}` : ", no grade"
                 }`}
-                className={`${STRIP_COLUMN_CLASS} rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
+                className={`${STRIP_COLUMN_CLASS} relative rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
               >
                 <StripDay d={d} mark={stripMark} grade={stripGrade} />
               </button>
