@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { dateAt, dayKey, shiftDay, stampOn, trimDays } from "../src/day.js";
-import { importText } from "../src/storage.js";
+import { importFile, importText, summarizeBackup } from "../src/storage.js";
 
 test("day keys use local dates instead of parsing date-only strings as UTC", () => {
   const date = dateAt("2026-01-02");
@@ -87,11 +87,8 @@ test("unchecked legacy training entries return their planned slot", () => {
 
 test("backup parsing validates shape and applies all legacy migrations", () => {
   assert.throws(() => importText("not json"), /isn't valid JSON/);
-  assert.throws(() => importText("null"), /isn't a Meal Rail backup/);
-  assert.throws(
-    () => importText('{"settings":{}}'),
-    /isn't a Meal Rail backup/,
-  );
+  assert.throws(() => importText("null"), /top level must be an object/);
+  assert.throws(() => importText('{"settings":{}}'), /days must be an object/);
 
   const parsed = importText(
     JSON.stringify({
@@ -115,6 +112,118 @@ test("backup parsing validates shape and applies all legacy migrations", () => {
     ],
   });
   assert.deepEqual(parsed.days["2026-08-10"], { planned: 3, checks: {} });
+});
+
+test("backup parsing rejects invalid nested structures with actionable paths", () => {
+  const valid = {
+    settings: {
+      plans: [
+        {
+          from: "2026-08-01",
+          slots: [{ id: "s1", label: "Breakfast" }],
+        },
+      ],
+    },
+    days: {
+      "2026-08-01": {
+        planned: 1,
+        checks: { s1: "stamp" },
+        unplanned: [],
+      },
+    },
+  };
+
+  assert.throws(
+    () => importText(JSON.stringify({ ...valid, days: [] })),
+    /days must be an object/,
+  );
+  assert.throws(
+    () =>
+      importText(
+        JSON.stringify({
+          ...valid,
+          settings: { plans: [{ from: "August 1", slots: [] }] },
+        }),
+      ),
+    /settings\.plans\[0\]\.from must be a YYYY-MM-DD date/,
+  );
+  assert.throws(
+    () =>
+      importText(
+        JSON.stringify({
+          ...valid,
+          days: {
+            "2026-08-01": { ...valid.days["2026-08-01"], drinks: -1 },
+          },
+        }),
+      ),
+    /days\.2026-08-01\.drinks must be a non-negative whole number/,
+  );
+  assert.throws(
+    () =>
+      importText(
+        JSON.stringify({
+          ...valid,
+          days: {
+            "2026-08-01": {
+              ...valid.days["2026-08-01"],
+              unplanned: [{ id: "snack", t: 123 }],
+            },
+          },
+        }),
+      ),
+    /days\.2026-08-01\.unplanned\[0\]\.t must be a non-empty string/,
+  );
+});
+
+test("backup summaries report their range and meaningful entry counts", () => {
+  assert.deepEqual(
+    summarizeBackup({
+      settings: {},
+      days: {
+        "2026-08-03": {
+          checks: { s1: "one", s2: "two" },
+          unplanned: [{ id: "u1", t: "three" }],
+          workouts: [{ id: "w1", t: "four" }],
+          drinks: 2,
+        },
+        "2026-08-01": { checks: {}, unplanned: [], drinks: 1 },
+      },
+    }),
+    {
+      dayCount: 2,
+      firstDay: "2026-08-01",
+      lastDay: "2026-08-03",
+      checks: 2,
+      snacks: 1,
+      workouts: 1,
+      drinks: 3,
+    },
+  );
+});
+
+test("cancelling the backup file picker settles without an error", async (t) => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const inputListeners = new Map();
+  const input = {
+    files: [],
+    addEventListener: (name, listener) => inputListeners.set(name, listener),
+    click: () => inputListeners.get("cancel")(),
+  };
+  const fakeWindow = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+
+  globalThis.document = { createElement: () => input };
+  globalThis.window = fakeWindow;
+  t.after(() => {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  });
+
+  assert.equal(await importFile(), null);
 });
 
 test("dated and upcoming plans round-trip through backup parsing", () => {

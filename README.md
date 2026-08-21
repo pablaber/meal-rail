@@ -55,6 +55,11 @@ to another device without one — copy it, paste it into a message to yourself, 
 paste it back in over there. Daily use should keep eviction from ever triggering,
 but take a backup occasionally.
 
+A restore always replaces the complete local data set, including settings. Meal
+Rail does not merge backups: resolving two versions of the same day and two meal
+plan histories needs deterministic conflict rules, so merge restore is deliberately
+outside the backup workflow until those semantics are designed.
+
 If you later want real sync, `storage.js` is the seam: `load()` and `save()` are
 already async, so swapping their bodies for `fetch()` against a small service is a
 change to one file. Nothing in `App.jsx` needs to know.

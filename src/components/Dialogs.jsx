@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { formatDate } from "../day.js";
 import { drinkCircles } from "../grade.js";
 import { C, FONT } from "../theme.js";
 import { DRINK_DOTS_MAX, DrinkDot } from "./HistoryStrip.jsx";
@@ -109,9 +110,9 @@ export function ConfirmDialog({
 
   return (
     <Dialog title={title} eyebrow={eyebrow} ariaLabel={title} onClose={close}>
-      <p className="mt-3 text-sm" style={{ color: C.muted }}>
+      <div className="mt-3 text-sm" style={{ color: C.muted }}>
         {message}
-      </p>
+      </div>
       <div className="mt-5 flex items-center justify-end gap-2">
         <button
           onClick={close}
@@ -135,6 +136,51 @@ export function ConfirmDialog({
         </button>
       </div>
     </Dialog>
+  );
+}
+
+const countLabel = (count, singular, plural = `${singular}s`) =>
+  `${count} ${count === 1 ? singular : plural}`;
+
+export function RestoreDialog({
+  summary,
+  onConfirm,
+  onClose,
+  damaged = false,
+}) {
+  const range = summary.dayCount
+    ? summary.firstDay === summary.lastDay
+      ? formatDate(summary.firstDay)
+      : `${formatDate(summary.firstDay)} through ${formatDate(summary.lastDay)}`
+    : "No logged dates";
+  const entries = [
+    countLabel(summary.checks, "checked meal"),
+    countLabel(summary.snacks, "snack"),
+    countLabel(summary.workouts, "workout snack"),
+    countLabel(summary.drinks, "drink"),
+  ].join(" · ");
+
+  return (
+    <ConfirmDialog
+      title={damaged ? "Replace damaged data" : "Restore this backup?"}
+      eyebrow="Review backup"
+      message={
+        <>
+          <p>
+            {countLabel(summary.dayCount, "logged day")} · {range}
+          </p>
+          <p className="mt-2">{entries}</p>
+          <p className="mt-3" style={{ color: C.brass }}>
+            This replaces all settings and logged days currently on this device.
+            Back them up first if you may need them later.
+          </p>
+        </>
+      }
+      confirmLabel={damaged ? "Replace data" : "Restore backup"}
+      armMs={0}
+      onConfirm={onConfirm}
+      onClose={onClose}
+    />
   );
 }
 
@@ -217,7 +263,7 @@ export function PasteDialog({ onLoad, onClose }) {
           className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
           style={{ background: C.done, color: C.ground }}
         >
-          Restore
+          Review backup
         </button>
       </div>
     </Dialog>

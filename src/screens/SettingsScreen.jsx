@@ -5,10 +5,15 @@ import {
   exportFile,
   importFile,
   importText,
+  summarizeBackup,
 } from "../storage.js";
 import { BUILD_ID, checkForUpdate } from "../update.js";
 import { C, FONT } from "../theme.js";
-import { ConfirmDialog, PasteDialog } from "../components/Dialogs.jsx";
+import {
+  ConfirmDialog,
+  PasteDialog,
+  RestoreDialog,
+} from "../components/Dialogs.jsx";
 import { Screen, StatusLine } from "../components/Screen.jsx";
 
 const DATA_BUTTON_CLASS =
@@ -35,14 +40,15 @@ export function SettingsScreen({
 }) {
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [restorePreview, setRestorePreview] = useState(null);
   const patchSettings = onPatchSettings;
   const restoreBackup = onRestoreBackup;
   const showNotice = onShowNotice;
 
   useEffect(() => {
-    onOverlayChange(confirmClearOpen || pasteOpen);
+    onOverlayChange(confirmClearOpen || pasteOpen || !!restorePreview);
     return () => onOverlayChange(false);
-  }, [confirmClearOpen, onOverlayChange, pasteOpen]);
+  }, [confirmClearOpen, onOverlayChange, pasteOpen, restorePreview]);
 
   return (
     <Screen
@@ -78,7 +84,17 @@ export function SettingsScreen({
                 // catches and reports without losing what was pasted.
                 const parsed = importText(text);
                 setPasteOpen(false);
-                restoreBackup(parsed);
+                setRestorePreview(parsed);
+              }}
+            />
+          )}
+          {restorePreview && (
+            <RestoreDialog
+              summary={summarizeBackup(restorePreview)}
+              onClose={() => setRestorePreview(null)}
+              onConfirm={async () => {
+                const ok = await restoreBackup(restorePreview);
+                if (ok) setRestorePreview(null);
               }}
             />
           )}
@@ -223,9 +239,21 @@ export function SettingsScreen({
           </p>
 
           <button
-            onClick={() => {
-              exportFile({ settings, days });
-              showNotice("Backup downloaded");
+            onClick={async () => {
+              const lastBackupAt = new Date().toISOString();
+              const result = await exportFile({
+                settings: { ...settings, lastBackupAt },
+                days,
+              });
+              if (result === "cancelled") return;
+              if (result === "failed") {
+                showNotice("Couldn't create the backup file", { failed: true });
+                return;
+              }
+              await patchSettings({ lastBackupAt });
+              showNotice(
+                result === "shared" ? "Backup shared" : "Backup downloaded",
+              );
             }}
             aria-label="Download a backup file"
             className={DATA_BUTTON_CLASS}
@@ -236,7 +264,8 @@ export function SettingsScreen({
           <button
             onClick={async () => {
               try {
-                restoreBackup(await importFile());
+                const parsed = await importFile();
+                if (parsed) setRestorePreview(parsed);
               } catch (e) {
                 // The messages come from `storage.js` and are already written
                 // for this line — "That isn't a Meal Rail backup".
@@ -252,9 +281,17 @@ export function SettingsScreen({
 
           <button
             onClick={async () => {
-              const ok = await exportClipboard({ settings, days });
-              if (ok) showNotice("Backup copied");
-              else showNotice("Couldn't reach the clipboard", { failed: true });
+              const lastBackupAt = new Date().toISOString();
+              const ok = await exportClipboard({
+                settings: { ...settings, lastBackupAt },
+                days,
+              });
+              if (ok) {
+                await patchSettings({ lastBackupAt });
+                showNotice("Backup copied");
+              } else {
+                showNotice("Couldn't reach the clipboard", { failed: true });
+              }
             }}
             aria-label="Copy the backup as text"
             className={DATA_BUTTON_CLASS}
@@ -271,6 +308,21 @@ export function SettingsScreen({
             Paste text
           </button>
         </div>
+        <p
+          className="mt-3 text-xs"
+          style={{ color: C.faintText, fontFamily: FONT.mono }}
+        >
+          {settings.lastBackupAt &&
+          !Number.isNaN(Date.parse(settings.lastBackupAt))
+            ? `Last backup: ${new Date(
+                settings.lastBackupAt,
+              ).toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}`
+            : "No backup recorded yet"}
+        </p>
       </section>
 
       {/* What the app says about itself, at the foot of the screen: which
