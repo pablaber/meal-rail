@@ -39,13 +39,17 @@ import {
   stampOn,
   trimDays,
 } from "./day.js";
+import {
+  DEFAULT_SLOTS,
+  applyPlanChange,
+  nextSlotId,
+  planFor,
+  removePlan,
+  slotsFor,
+} from "./plans.js";
 
 const DEFAULTS = {
-  slots: [
-    { id: "s1", label: "Breakfast" },
-    { id: "s2", label: "Lunch" },
-    { id: "s4", label: "Dinner" },
-  ],
+  plans: [{ from: dayKey(), slots: DEFAULT_SLOTS }],
   trainingEnabled: true,
   promptNotes: false,
   // How the two-week strip draws a day. Two flat keys rather than one nested
@@ -62,7 +66,7 @@ const DEFAULTS = {
 // The screens reached through history. Seeding the first view, the popstate
 // listener and the Escape key all read this list, so a new screen is added in
 // one place instead of three that can drift apart.
-const HISTORY_VIEWS = ["settings", "calendar", "day", "strip"];
+const HISTORY_VIEWS = ["settings", "calendar", "day", "strip", "plan"];
 
 // A workout snack isn't a slot you can re-cut — it's one fixed kind of entry,
 // like an unplanned one, so its label is a constant rather than a setting.
@@ -331,10 +335,17 @@ export default function MealRail() {
   const [draft, setDraft] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [planDraft, setPlanDraft] = useState(null);
+  const [planDirty, setPlanDirty] = useState(false);
+  const [confirmPlanDiscard, setConfirmPlanDiscard] = useState(false);
+  const [planStartChoice, setPlanStartChoice] = useState(false);
+  const [confirmCancelUpcoming, setConfirmCancelUpcoming] = useState(null);
   // The popstate listener is mounted once and never re-subscribes, so it can't
   // close over `draft`. This mirrors it synchronously, which also means the
   // guard is already down by the time Save's own `history.back()` lands.
   const editRef = useRef({ active: false, dirty: false, key: null });
+  const planEditRef = useRef({ active: false, dirty: false, baseDay: null });
+  const planSavingRef = useRef(false);
   // The month the calendar is showing, as a plain year/month pair rather than
   // a Date — every opening resets this to the current month, and browsing
   // months moves it without touching history.
@@ -362,6 +373,9 @@ export default function MealRail() {
       } else if (alive && parsed.status === "unreadable") {
         setRecovery(parsed);
       }
+      if (window.history.state?.view === "plan" && window.history.state?.edit) {
+        window.history.replaceState({ view: "plan" }, "");
+      }
       if (alive) setReady(true);
     })();
     return () => {
@@ -384,6 +398,11 @@ export default function MealRail() {
   const openSettings = () => {
     window.history.pushState({ view: "settings" }, "");
     setView("settings");
+  };
+
+  const openPlanSettings = () => {
+    window.history.pushState({ view: "plan" }, "");
+    setView("plan");
   };
 
   // Its own history entry on top of settings, so back lands where you came
@@ -418,6 +437,23 @@ export default function MealRail() {
   // down before calling `back()`, so their own pop passes straight through.
   useEffect(() => {
     const onPop = (e) => {
+      if (
+        planEditRef.current.active &&
+        !(e.state?.view === "plan" && e.state?.edit)
+      ) {
+        if (planEditRef.current.dirty) {
+          window.history.pushState({ view: "plan", edit: true }, "");
+          setConfirmPlanDiscard(true);
+          return;
+        }
+        planEditRef.current = {
+          active: false,
+          dirty: false,
+          baseDay: null,
+        };
+        setPlanDraft(null);
+        setPlanDirty(false);
+      }
       if (editRef.current.active && !e.state?.edit) {
         if (editRef.current.dirty) {
           window.history.pushState(
@@ -436,6 +472,9 @@ export default function MealRail() {
       setView(HISTORY_VIEWS.includes(v) ? v : "today");
       setConfirmClearOpen(false);
       setEditing(null);
+      setPlanStartChoice(false);
+      setConfirmPlanDiscard(false);
+      setConfirmCancelUpcoming(null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -451,13 +490,34 @@ export default function MealRail() {
     if (!HISTORY_VIEWS.includes(view)) return;
     const onKey = (e) => {
       if (e.key !== "Escape") return;
-      if (editing || confirmDiscard || confirmClearOpen || pasteOpen) return;
-      if (draft) cancelEdit();
+      if (
+        editing ||
+        confirmDiscard ||
+        confirmPlanDiscard ||
+        planStartChoice ||
+        confirmCancelUpcoming ||
+        confirmClearOpen ||
+        pasteOpen
+      )
+        return;
+      if (planDraft) cancelPlanEdit();
+      else if (draft) cancelEdit();
       else goBack();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [view, editing, confirmDiscard, confirmClearOpen, pasteOpen, draft]);
+  }, [
+    view,
+    editing,
+    confirmDiscard,
+    confirmPlanDiscard,
+    planStartChoice,
+    confirmCancelUpcoming,
+    confirmClearOpen,
+    pasteOpen,
+    planDraft,
+    draft,
+  ]);
 
   // Roll over at midnight / on refocus
   useEffect(() => {
@@ -476,9 +536,13 @@ export default function MealRail() {
     const ok = await save({ settings: nextSettings, days: trimmed });
     setSaveError(!ok);
     setSaving(false);
+    return ok;
   }, []);
 
-  const slots = settings.slots;
+  const plans = settings.plans;
+  const currentPlan = planFor(plans, today);
+  const tomorrow = shiftDay(today, 1);
+  const upcomingPlan = plans.find((plan) => plan.from === tomorrow) || null;
 
   // `settings` can arrive from a hand-edited backup, so neither of these is
   // trusted to name a real option — an unknown value falls back to the default
@@ -504,6 +568,7 @@ export default function MealRail() {
   const editingPast = !!draft;
   const activeKey = draft ? draft.key : today;
   const activeRecord = draft ? draft.record : days[today] || BLANK_DAY;
+  const activeSlots = slotsFor(plans, activeKey);
 
   // A workout snack arrives already checked, so it raises `planned` and the
   // day's check count by one together: it can never cost the day a grade, and it
@@ -516,8 +581,9 @@ export default function MealRail() {
     const workouts =
       ("workouts" in patch ? patch.workouts : activeRecord.workouts) || [];
     next.planned =
-      (editingPast ? plannedBase(activeRecord, slots) : slots.length) +
-      workouts.length;
+      (editingPast
+        ? plannedBase(activeRecord, activeSlots)
+        : activeSlots.length) + workouts.length;
 
     if (editingPast) {
       editRef.current.dirty = true;
@@ -549,6 +615,140 @@ export default function MealRail() {
     setSettings(next);
     persist(next, days);
   };
+
+  const startPlanEdit = (plan = currentPlan, editingUpcoming = false) => {
+    const slots = plan.slots.map((slot) => ({ ...slot }));
+    planEditRef.current = { active: true, dirty: false, baseDay: today };
+    setPlanDraft({
+      baseDay: today,
+      from: editingUpcoming ? tomorrow : today,
+      slots,
+      editingUpcoming,
+    });
+    setPlanDirty(false);
+    window.history.pushState({ view: "plan", edit: true }, "");
+  };
+
+  const updatePlanSlots = (change) => {
+    planEditRef.current.dirty = true;
+    setPlanDirty(true);
+    setPlanDraft((draft) => ({
+      ...draft,
+      slots: change(draft.slots),
+    }));
+  };
+
+  const leavePlanEdit = () => {
+    planEditRef.current = { active: false, dirty: false, baseDay: null };
+    setPlanDraft(null);
+    setPlanDirty(false);
+    setConfirmPlanDiscard(false);
+    setPlanStartChoice(false);
+    window.history.back();
+  };
+
+  const cancelPlanEdit = () => {
+    if (planEditRef.current.dirty) setConfirmPlanDiscard(true);
+    else leavePlanEdit();
+  };
+
+  const commitPlanChange = async ({ from, slots, eraseToday = false }) => {
+    if (planSavingRef.current) return false;
+    if (!planDraft || planDraft.baseDay !== today) {
+      showNotice("The date changed — review the meal plan again.", {
+        failed: true,
+      });
+      leavePlanEdit();
+      return false;
+    }
+    planSavingRef.current = true;
+
+    const cleanSlots = slots.map((slot) => ({
+      ...slot,
+      label: slot.label.trim(),
+    }));
+    const applied = applyPlanChange(settingsRef.current.plans, days, {
+      from,
+      slots: cleanSlots,
+      removeDay:
+        eraseToday || (from === today && isEmptyDay(days[today] || BLANK_DAY))
+          ? today
+          : null,
+    });
+    const nextSettings = {
+      ...settingsRef.current,
+      plans: applied.plans,
+    };
+    const nextDays = applied.days;
+
+    const ok = await persist(nextSettings, nextDays);
+    planSavingRef.current = false;
+    if (!ok) return false;
+
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    setDays(nextDays);
+    showNotice(
+      from === tomorrow ? "Plan starts tomorrow" : "Meal plan changed",
+    );
+    leavePlanEdit();
+    return true;
+  };
+
+  const savePlanDraft = () => {
+    if (!planDraft || planDraft.slots.some((slot) => !slot.label.trim()))
+      return;
+    if (planDraft.baseDay !== today) {
+      commitPlanChange({
+        from: planDraft.from,
+        slots: planDraft.slots,
+      });
+      return;
+    }
+    if (planDraft.editingUpcoming) {
+      commitPlanChange({ from: tomorrow, slots: planDraft.slots });
+    } else if (isEmptyDay(days[today] || BLANK_DAY)) {
+      commitPlanChange({ from: today, slots: planDraft.slots });
+    } else {
+      setPlanStartChoice(true);
+    }
+  };
+
+  const cancelUpcomingPlan = async () => {
+    const target = confirmCancelUpcoming;
+    if (!target) return;
+    if (target.baseDay !== today || target.from !== shiftDay(today, 1)) {
+      setConfirmCancelUpcoming(null);
+      showNotice("The date changed — review the meal plan again.", {
+        failed: true,
+      });
+      return;
+    }
+
+    const nextSettings = {
+      ...settingsRef.current,
+      plans: removePlan(settingsRef.current.plans, target.from),
+    };
+    const ok = await persist(nextSettings, days);
+    if (!ok) return;
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    setConfirmCancelUpcoming(null);
+    showNotice("Upcoming plan cancelled");
+  };
+
+  useEffect(() => {
+    if (!planDraft || planDraft.baseDay === today) return;
+    planEditRef.current = { active: false, dirty: false, baseDay: null };
+    setPlanDraft(null);
+    setPlanDirty(false);
+    setConfirmPlanDiscard(false);
+    setPlanStartChoice(false);
+    showNotice("The date changed — review the meal plan again.", {
+      failed: true,
+    });
+    window.history.back();
+  }, [planDraft, showNotice, today]);
 
   // Both ways in end here. A restore replaces everything — in state and on disk
   // — whichever way the JSON arrived, so a file and a paste can't drift into
@@ -775,12 +975,12 @@ export default function MealRail() {
       const k = shiftDay(today, -i);
       const dow = dateAt(k).getDay();
       out.push({
-        ...daySummary(days, k, settings.slots.length, k === today),
+        ...daySummary(days, k, slotsFor(plans, k).length, k === today),
         isWeekend: dow === 0 || dow === 6,
       });
     }
     return out;
-  }, [days, today, settings.slots.length]);
+  }, [days, plans, today]);
 
   // Contiguous runs of weekend days in the strip, as column indices. Usually
   // one or two full Saturday+Sunday pairs, but a run can be a single day when
@@ -827,11 +1027,11 @@ export default function MealRail() {
       const key = dayKey(new Date(year, month, day));
       cells.push({
         day,
-        ...daySummary(days, key, settings.slots.length, key === today),
+        ...daySummary(days, key, slotsFor(plans, key).length, key === today),
       });
     }
     return cells;
-  }, [calendarMonth, days, settings.slots.length, today]);
+  }, [calendarMonth, days, plans, today]);
 
   const calendarMonthLabel = useMemo(
     () =>
@@ -846,14 +1046,17 @@ export default function MealRail() {
   );
 
   const selectedDayRecord = selectedDay ? days[selectedDay] : null;
+  const selectedDaySlots = selectedDay
+    ? slotsFor(plans, selectedDay)
+    : currentPlan.slots;
   const selectedDaySummary = selectedDay
-    ? daySummary(days, selectedDay, settings.slots.length, false)
+    ? daySummary(days, selectedDay, selectedDaySlots.length, false)
     : null;
 
   // The draft's grade, recomputed as it is edited, so a correction shows what
   // it does to the day before it is committed.
   const draftGrade = draft
-    ? dayBadge(summarize(draft.record, slots.length))
+    ? dayBadge(summarize(draft.record, activeSlots.length))
     : null;
 
   const weekExtras = history.slice(7).reduce((a, d) => a + d.extra, 0);
@@ -889,7 +1092,7 @@ export default function MealRail() {
   // One rail, one set of handlers, whichever day is open.
   const railProps = {
     record: activeRecord,
-    slots,
+    slots: activeSlots,
     trainingEnabled: settings.trainingEnabled,
     onCheck: check,
     onAddSnack: addUnplanned,
@@ -1184,7 +1387,23 @@ export default function MealRail() {
             Your day
           </p>
 
-          <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+          <button
+            onClick={openPlanSettings}
+            className="mt-3 flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm">Meal plan</span>
+              <span
+                className="mt-0.5 block truncate text-xs"
+                style={{ color: C.muted }}
+              >
+                {currentPlan.slots.map((slot) => slot.label).join(" · ")}
+              </span>
+            </span>
+            <IconChevronRight color={C.muted} />
+          </button>
+
+          <label className="mt-4 flex items-center justify-between gap-3 text-sm">
             <span>Offer a workout snack</span>
             <button
               onClick={() =>
@@ -1378,6 +1597,116 @@ export default function MealRail() {
           </div>
         </div>
       </Screen>
+    );
+  }
+
+  if (view === "plan") {
+    const previousPlans = plans
+      .filter((plan) => plan.from < currentPlan.from)
+      .slice()
+      .reverse();
+    const planStatus = (
+      <StatusLine saveError={saveError} notice={notice} saving={saving} />
+    );
+
+    if (planDraft) {
+      return (
+        <MealPlanEditor
+          slots={planDraft.slots}
+          dirty={planDirty}
+          saving={saving}
+          editingUpcoming={planDraft.editingUpcoming}
+          onBack={cancelPlanEdit}
+          onSave={savePlanDraft}
+          onRename={(id, label) =>
+            updatePlanSlots((slots) =>
+              slots.map((slot) => (slot.id === id ? { ...slot, label } : slot)),
+            )
+          }
+          onMove={(index, delta) =>
+            updatePlanSlots((slots) => {
+              const next = slots.slice();
+              const [slot] = next.splice(index, 1);
+              next.splice(index + delta, 0, slot);
+              return next;
+            })
+          }
+          onRetire={(id) =>
+            updatePlanSlots((slots) => slots.filter((slot) => slot.id !== id))
+          }
+          onAdd={() =>
+            updatePlanSlots((slots) => [
+              ...slots,
+              {
+                id: nextSlotId([...plans, { from: "draft", slots }], days),
+                label: "",
+              },
+            ])
+          }
+          status={planStatus}
+          overlay={
+            <>
+              {planStartChoice && (
+                <PlanStartDialog
+                  onClose={() => setPlanStartChoice(false)}
+                  onTomorrow={() =>
+                    commitPlanChange({
+                      from: tomorrow,
+                      slots: planDraft.slots,
+                    })
+                  }
+                  onToday={() =>
+                    commitPlanChange({
+                      from: today,
+                      slots: planDraft.slots,
+                      eraseToday: true,
+                    })
+                  }
+                />
+              )}
+              {confirmPlanDiscard && (
+                <ConfirmDialog
+                  title="Discard plan changes"
+                  eyebrow="Unsaved changes"
+                  message="Leaving now loses the changes in this meal plan draft."
+                  confirmLabel="Discard"
+                  armMs={0}
+                  onClose={() => setConfirmPlanDiscard(false)}
+                  onConfirm={leavePlanEdit}
+                />
+              )}
+            </>
+          }
+        />
+      );
+    }
+
+    return (
+      <MealPlanScreen
+        currentPlan={currentPlan}
+        upcomingPlan={upcomingPlan}
+        previousPlans={previousPlans}
+        onBack={goBack}
+        onChange={() => startPlanEdit(currentPlan, false)}
+        onEditUpcoming={() => startPlanEdit(upcomingPlan, true)}
+        onCancelUpcoming={() =>
+          setConfirmCancelUpcoming({ from: upcomingPlan.from, baseDay: today })
+        }
+        status={planStatus}
+        overlay={
+          confirmCancelUpcoming && (
+            <ConfirmDialog
+              title="Cancel upcoming plan"
+              eyebrow="Upcoming change"
+              message="Your current meal plan will continue tomorrow instead."
+              confirmLabel="Cancel change"
+              armMs={0}
+              onClose={() => setConfirmCancelUpcoming(null)}
+              onConfirm={cancelUpcomingPlan}
+            />
+          )
+        }
+      />
     );
   }
 
@@ -1640,7 +1969,7 @@ export default function MealRail() {
         dateKey={selectedDay}
         today={today}
         record={selectedDayRecord}
-        slots={slots}
+        slots={selectedDaySlots}
         summary={selectedDaySummary}
         editable={selectedDay >= shiftDay(today, -RETENTION_DAYS)}
         onEdit={() => startEdit(selectedDay)}
@@ -1769,6 +2098,357 @@ export default function MealRail() {
         <StatusLine saveError={saveError} notice={notice} saving={saving} />
       </section>
     </Screen>
+  );
+}
+
+function MealPlanScreen({
+  currentPlan,
+  upcomingPlan,
+  previousPlans,
+  onBack,
+  onChange,
+  onEditUpcoming,
+  onCancelUpcoming,
+  status,
+  overlay,
+}) {
+  return (
+    <Screen overlay={overlay}>
+      <header className="flex items-start gap-3">
+        <button
+          onClick={onBack}
+          aria-label="Back to settings"
+          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: C.surface }}
+        >
+          <IconBack color={C.chalk} />
+        </button>
+        <div>
+          <h1
+            className="text-3xl leading-tight"
+            style={{ fontFamily: FONT.display }}
+          >
+            Meal plan
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: C.muted }}>
+            Changes apply today and going forward. Past days keep the plan they
+            used.
+          </p>
+        </div>
+      </header>
+
+      <section className="mt-8">
+        <p
+          className="text-xs uppercase tracking-widest"
+          style={{ color: C.muted, fontFamily: FONT.mono }}
+        >
+          Current plan
+        </p>
+        <PlanCard plan={currentPlan} />
+        {!upcomingPlan && (
+          <button
+            onClick={onChange}
+            className="mt-3 w-full rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: C.done, color: C.ground }}
+          >
+            Change plan
+          </button>
+        )}
+      </section>
+
+      {upcomingPlan && (
+        <section
+          className="mt-6 pt-6"
+          style={{ borderTop: `1px solid ${C.rail}` }}
+        >
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.brass, fontFamily: FONT.mono }}
+          >
+            Upcoming plan · starts tomorrow
+          </p>
+          <PlanCard plan={upcomingPlan} />
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={onEditUpcoming}
+              className="flex-1 rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: C.surfaceHi, color: C.chalk }}
+            >
+              Edit upcoming plan
+            </button>
+            <button
+              onClick={onCancelUpcoming}
+              className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              style={{ background: "transparent", color: C.red }}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
+
+      {previousPlans.length > 0 && (
+        <section
+          className="mt-6 pt-6"
+          style={{ borderTop: `1px solid ${C.rail}` }}
+        >
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            Previous plans
+          </p>
+          <div className="mt-3 flex flex-col gap-3">
+            {previousPlans.map((plan) => (
+              <div key={plan.from}>
+                <p
+                  className="text-xs"
+                  style={{ color: C.faintText, fontFamily: FONT.mono }}
+                >
+                  From {formatDateShort(plan.from)}
+                </p>
+                <p className="mt-1 text-sm" style={{ color: C.muted }}>
+                  {plan.slots.map((slot) => slot.label).join(" · ")}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="mt-auto pt-6">{status}</div>
+    </Screen>
+  );
+}
+
+function PlanCard({ plan }) {
+  return (
+    <ol
+      className="mt-3 flex flex-col gap-2 rounded-xl px-4 py-3"
+      style={{ background: C.surface }}
+    >
+      {plan.slots.map((slot, index) => (
+        <li key={slot.id} className="flex items-center gap-3 text-sm">
+          <span
+            className="text-xs"
+            style={{ color: C.faintText, fontFamily: FONT.mono }}
+          >
+            {index + 1}
+          </span>
+          <span>{slot.label}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function MealPlanEditor({
+  slots,
+  dirty,
+  saving,
+  editingUpcoming,
+  onBack,
+  onSave,
+  onRename,
+  onMove,
+  onRetire,
+  onAdd,
+  status,
+  overlay,
+}) {
+  const invalid = slots.some((slot) => !slot.label.trim());
+  return (
+    <Screen overlay={overlay}>
+      <header className="flex items-start gap-3">
+        <button
+          onClick={onBack}
+          aria-label="Cancel meal plan changes"
+          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: C.surface }}
+        >
+          <IconBack color={C.chalk} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p
+            className="text-xs uppercase tracking-widest"
+            style={{ color: C.muted, fontFamily: FONT.mono }}
+          >
+            {editingUpcoming ? "Starts tomorrow" : "Meal plan"}
+            {dirty ? " · Unsaved changes" : ""}
+          </p>
+          <h1
+            className="mt-1 text-3xl leading-tight"
+            style={{ fontFamily: FONT.display }}
+          >
+            {editingUpcoming ? "Edit upcoming plan" : "Change plan"}
+          </h1>
+        </div>
+      </header>
+
+      <section className="mt-8">
+        <p className="text-sm" style={{ color: C.muted }}>
+          Rename meals, put them in order, or retire ones you no longer plan.
+        </p>
+        <ol className="mt-4 flex flex-col gap-3">
+          {slots.map((slot, index) => (
+            <li
+              key={slot.id}
+              className="rounded-xl p-3"
+              style={{ background: C.surface }}
+            >
+              <label
+                className="block text-xs"
+                style={{ color: C.muted, fontFamily: FONT.mono }}
+              >
+                Meal {index + 1}
+                <input
+                  value={slot.label}
+                  onChange={(event) => onRename(slot.id, event.target.value)}
+                  placeholder="Meal name"
+                  className="mt-1 w-full rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  style={{
+                    background: C.surfaceHi,
+                    color: C.chalk,
+                    border: "none",
+                  }}
+                />
+              </label>
+              <div className="mt-2 flex items-center justify-end gap-1">
+                <button
+                  onClick={() => onMove(index, -1)}
+                  disabled={index === 0}
+                  aria-label={`Move ${slot.label || `meal ${index + 1}`} earlier`}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-30"
+                  style={{ background: C.surfaceHi, color: C.chalk }}
+                >
+                  ↑
+                </button>
+                <button
+                  onClick={() => onMove(index, 1)}
+                  disabled={index === slots.length - 1}
+                  aria-label={`Move ${slot.label || `meal ${index + 1}`} later`}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-30"
+                  style={{ background: C.surfaceHi, color: C.chalk }}
+                >
+                  ↓
+                </button>
+                <button
+                  onClick={() => onRetire(slot.id)}
+                  disabled={slots.length === 1}
+                  aria-label={`Retire ${slot.label || `meal ${index + 1}`}`}
+                  className="ml-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-30"
+                  style={{ background: "transparent", color: C.red }}
+                >
+                  Retire
+                </button>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <button
+          onClick={onAdd}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          style={{ background: C.surfaceHi, color: C.chalk }}
+        >
+          <IconPlus color={C.done} />
+          Add meal
+        </button>
+        {invalid && (
+          <p
+            className="mt-2 text-xs"
+            style={{ color: C.brass, fontFamily: FONT.mono }}
+            role="alert"
+          >
+            Give every meal a name before saving.
+          </p>
+        )}
+      </section>
+
+      <div className="mt-auto pt-8">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onBack}
+            className="rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            style={{ background: "transparent", color: C.muted }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSave}
+            disabled={!dirty || invalid || saving}
+            aria-busy={saving}
+            className="rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+            style={{ background: C.done, color: C.ground }}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+        {status}
+      </div>
+    </Screen>
+  );
+}
+
+function PlanStartDialog({ onClose, onTomorrow, onToday }) {
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+
+  const choose = async (action) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    const ok = await action();
+    if (!ok) {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  const close = () => {
+    if (!submittingRef.current) onClose();
+  };
+
+  return (
+    <Dialog
+      title="Today already has entries"
+      eyebrow="Choose when to start"
+      ariaLabel="Choose when the new meal plan starts"
+      onClose={close}
+    >
+      <p className="mt-3 text-sm" style={{ color: C.muted }}>
+        You’ve already logged entries today. To start this plan today, Meal Rail
+        must erase today’s entries so the day uses one plan from start to
+        finish.
+      </p>
+      <div className="mt-5 flex flex-col gap-2">
+        <button
+          onClick={() => choose(onTomorrow)}
+          disabled={submitting}
+          aria-busy={submitting}
+          className="w-full rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+          style={{ background: C.done, color: C.ground }}
+        >
+          Start tomorrow
+        </button>
+        <button
+          onClick={() => choose(onToday)}
+          disabled={submitting}
+          className="w-full rounded-lg px-4 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+          style={{ background: C.red, color: C.ground }}
+        >
+          Erase today &amp; start now
+        </button>
+        <button
+          onClick={close}
+          disabled={submitting}
+          className="w-full rounded-lg px-3 py-2 text-base focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-40"
+          style={{ background: "transparent", color: C.muted }}
+        >
+          Cancel
+        </button>
+      </div>
+    </Dialog>
   );
 }
 

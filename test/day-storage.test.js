@@ -101,6 +101,39 @@ test("backup parsing validates shape and applies all legacy migrations", () => {
       },
     }),
   );
-  assert.deepEqual(parsed.settings, { promptNotes: true });
+  assert.deepEqual(parsed.settings, {
+    promptNotes: true,
+    plans: [
+      {
+        from: "2026-08-10",
+        slots: [
+          { id: "s1", label: "Breakfast" },
+          { id: "s2", label: "Lunch" },
+          { id: "s4", label: "Dinner" },
+        ],
+      },
+    ],
+  });
   assert.deepEqual(parsed.days["2026-08-10"], { planned: 3, checks: {} });
+});
+
+test("dated and upcoming plans round-trip through backup parsing", () => {
+  const state = {
+    settings: {
+      plans: [
+        {
+          from: "2026-08-10",
+          slots: [{ id: "s1", label: "Breakfast" }],
+        },
+        {
+          from: "2026-08-22",
+          slots: [{ id: "s1", label: "Brunch" }],
+        },
+      ],
+      promptNotes: false,
+    },
+    days: { "2026-08-21": { planned: 1, checks: { s1: "stamp" } } },
+  };
+
+  assert.deepEqual(importText(JSON.stringify(state)), state);
 });

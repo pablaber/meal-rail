@@ -1,3 +1,6 @@
+import { dayKey } from "./day.js";
+import { migratePlans } from "./plans.js";
+
 // Persistence lives behind this module so the UI never talks to a storage API
 // directly. Today it is localStorage; swapping in IndexedDB, or a fetch() to a
 // Fastify server for cross-device sync, means changing only this file.
@@ -47,13 +50,14 @@ function migrate(state) {
   Object.keys(state.days).forEach((k) => {
     days[k] = migrateDay(state.days[k]);
   });
-  const settings = { ...(state.settings || {}) };
+  let settings = { ...(state.settings || {}) };
   // This began as a snack-only prompt. Keep its value when loading an install
   // or backup from that release, but store only the generic setting from now on.
   if (!("promptNotes" in settings) && "promptSnackNotes" in settings) {
     settings.promptNotes = settings.promptSnackNotes;
   }
   delete settings.promptSnackNotes;
+  settings = migratePlans(settings, days, dayKey());
   return { ...state, settings, days };
 }
 
