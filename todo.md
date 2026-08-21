@@ -94,22 +94,6 @@ These are known-broken and reproducible, as distinct from the improvements below
 
 - [ ] Explore optional meal-time reminders configurable per slot, including the
   architectural impact of delivering reliable notifications.
-- [ ] **Dated plans — the change that unlocks the most.** `settings.slots` has no
-  UI at all, so the app ships Breakfast/Lunch/Dinner and cannot be changed without
-  hand-editing JSON. That is the single biggest usability cliff for anyone whose
-  day is not those three. AGENTS.md already names the correct design ("the fix is
-  dated plans, not a special case here"), and it is more contained than it sounds:
-
-  ```js
-  settings.plans: [{ from: "YYYY-MM-DD", slots: [...] }]  // latest `from` <= day
-  ```
-
-  Grading is unaffected, because each day already stores its own `planned` and
-  `plannedBase` (`App.jsx:232-233`) keeps a past day measured against the count it
-  was written with. The work is a `slotsFor(key)` helper, a settings screen, and
-  pointing the two `slots.map(...)` call sites at it. Doing this also retires the
-  standing caveat that checks against retired slot ids are invisible in both the
-  read-only view and the editor.
 
 ## Accessibility
 

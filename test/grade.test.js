@@ -10,6 +10,7 @@ import {
   plannedBase,
   summarize,
 } from "../src/grade.js";
+import { slotsFor } from "../src/plans.js";
 
 test("dayBadge covers every grading tier", () => {
   assert.equal(
@@ -76,6 +77,43 @@ test("daySummary withholds today's badge", () => {
   };
   assert.equal(daySummary(days, "2026-08-10", 3, false).badge, "gold");
   assert.equal(daySummary(days, "2026-08-10", 3, true).badge, null);
+});
+
+test("dated plans supply only the fallback while stored planned stays authoritative", () => {
+  const plans = [
+    {
+      from: "2026-08-10",
+      slots: [{ id: "s1", label: "Breakfast" }],
+    },
+    {
+      from: "2026-08-20",
+      slots: [
+        { id: "s1", label: "Breakfast" },
+        { id: "s2", label: "Dinner" },
+      ],
+    },
+  ];
+  const days = {
+    "2026-08-19": { planned: 1, checks: { s1: "stamp" } },
+    "2026-08-20": { planned: 1, checks: { s1: "stamp" } },
+    "2026-08-21": { checks: { s1: "stamp" } },
+  };
+
+  assert.equal(
+    daySummary(days, "2026-08-19", slotsFor(plans, "2026-08-19").length, false)
+      .badge,
+    "gold",
+  );
+  assert.equal(
+    daySummary(days, "2026-08-20", slotsFor(plans, "2026-08-20").length, false)
+      .badge,
+    "gold",
+  );
+  assert.equal(
+    daySummary(days, "2026-08-21", slotsFor(plans, "2026-08-21").length, false)
+      .badge,
+    "green",
+  );
 });
 
 test("isEmptyDay ignores hollow optional fields but detects every entry type", () => {

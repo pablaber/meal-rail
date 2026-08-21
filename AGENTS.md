@@ -61,6 +61,7 @@ will parse _that_ — the field looks right and the error makes no sense.
 ```
 src/main.jsx      entry point; starts the service worker and the update check
 src/App.jsx       the UI — one component plus DayRail and the row/dialog parts
+src/plans.js      pure dated-plan resolution, migration, and slot-id helpers
 src/grade.js      pure grading and day-record domain helpers
 src/day.js        pure local-date and retention helpers
 src/storage.js    persistence; the only file that touches a storage API
@@ -122,7 +123,8 @@ One JSON blob under the `mealrail:v1` key:
 ```js
 {
   settings: {
-    slots: [{ id, label }], trainingEnabled, promptNotes,
+    plans: [{ from: "YYYY-MM-DD", slots: [{ id, label }] }],
+    trainingEnabled, promptNotes,
     stripMark, stripGrade,        // how the two-week strip draws a day
   },
   days: {
@@ -137,6 +139,13 @@ One JSON blob under the `mealrail:v1` key:
   },
 }
 ```
+
+The plan for a day is the latest entry whose `from` is on or before that local
+date. Slot ids stay stable across renames and reordering, and a newly added slot
+gets an id higher than every id in both plan history and stored checks. Retiring a
+slot removes it only from the new plan, so past days keep their labels and rows.
+Legacy `settings.slots` is migrated to a baseline plan by `storage.js`; don't drop
+that migration because old installs and backups still carry it.
 
 Days older than 400 are trimmed on every save. Changing this shape breaks existing
 users' data and their backup files — migrate in `storage.js`, don't bump the key
@@ -261,12 +270,13 @@ every save, so the correction would be thrown away the moment it was written.
 That is why the Edit button is replaced by a line saying so rather than merely
 disabled.
 
-`settings.slots` has no UI. It is edited by hand or by restoring a backup — the
-app is a checklist, and re-cutting the slots mid-history makes the two-week
-strip lie about days that were planned differently. A past day's checks against
-slot ids that no longer exist are invisible in both the read-only view and the
-editor, which both render `slots.map(...)`; the fix is dated plans, not a
-special case here.
+Settings → Meal plan changes slots by writing a dated plan rather than rewriting
+history. With an empty today it starts immediately. Once today has entries, the
+safe option starts tomorrow; starting immediately first deletes the entire today
+record so one date never mixes two plans. A tomorrow plan is shown as upcoming
+and can be edited or cancelled before it takes effect. Plan drafts use their own
+history entry and dirty-discard guard, and a midnight rollover invalidates the
+draft before it can erase or schedule against the wrong date.
 
 ## Backups
 
