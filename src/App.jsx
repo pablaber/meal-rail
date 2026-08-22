@@ -196,12 +196,17 @@ export default function MealRail() {
     let alive = true;
     (async () => {
       const parsed = await load();
+      // Strict Mode mounts, cleans up, and mounts this effect again in
+      // development. The abandoned async run must not reconcile history after
+      // its cleanup: doing so strips the edit flag before the live run can
+      // restore the editor and leaves a duplicate read-only entry on top.
+      if (!alive) return;
       const loadedDays =
         parsed.status === "valid" ? parsed.state.days || {} : {};
-      if (alive && parsed.status === "valid") {
+      if (parsed.status === "valid") {
         setSettings({ ...DEFAULTS, ...(parsed.state.settings || {}) });
         setDays(loadedDays);
-      } else if (alive && parsed.status === "unreadable") {
+      } else if (parsed.status === "unreadable") {
         setRecovery(parsed);
       }
       // Reload keeps the current history entry. If it is a valid past-day edit,
@@ -209,7 +214,7 @@ export default function MealRail() {
       // guard so the first Back returns to the read-only day. An edit entry we
       // can no longer honor loses only its stale `edit` flag.
       const resumedDay = resumableDayEdit(window.history.state, today);
-      if (alive && resumedDay && parsed.status !== "unreadable") {
+      if (resumedDay && parsed.status !== "unreadable") {
         setDraft({
           key: resumedDay,
           record: loadedDays[resumedDay] || BLANK_DAY,
@@ -225,7 +230,7 @@ export default function MealRail() {
       if (window.history.state?.view === "plan" && window.history.state?.edit) {
         window.history.replaceState({ view: "plan" }, "");
       }
-      if (alive) setReady(true);
+      setReady(true);
     })();
     return () => {
       alive = false;
