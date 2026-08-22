@@ -58,7 +58,7 @@ import {
   PasteDialog,
   RestoreDialog,
 } from "./components/Dialogs.jsx";
-import { DayRail } from "./components/DayRail.jsx";
+import { DayRail, IconPlus } from "./components/DayRail.jsx";
 import { Screen, StatusLine } from "./components/Screen.jsx";
 
 const DEFAULTS = {

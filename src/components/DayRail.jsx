@@ -290,7 +290,10 @@ function AddButton({
   );
 }
 
-function IconPlus({ color }) {
+// Exported because `MealPlanEditor`'s "Add meal" button in `App.jsx` draws the
+// same plus. The two are the same affordance — put a new thing in the list —
+// so they should not drift into two glyphs.
+export function IconPlus({ color }) {
   return (
     <svg
       width="13"
