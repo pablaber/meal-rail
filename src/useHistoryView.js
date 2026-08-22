@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { RETENTION_DAYS, dateAt, dayKey, shiftDay } from "./day.js";
 
 // Screens that participate in the browser's history. Keeping the list beside
 // the history adapter makes reload and popstate validation use the same source.
@@ -8,6 +9,27 @@ const initialView = () => {
   const view = window.history.state?.view;
   return HISTORY_VIEWS.includes(view) ? view : "today";
 };
+
+export function resumableDayEdit(state, today) {
+  if (
+    state?.view !== "day" ||
+    state.edit !== true ||
+    typeof state.day !== "string" ||
+    dayKey(dateAt(state.day)) !== state.day
+  ) {
+    return null;
+  }
+  return state.day < today && state.day >= shiftDay(today, -RETENTION_DAYS)
+    ? state.day
+    : null;
+}
+
+export function warnBeforeUnload(edit, event) {
+  if (!edit.dirty) return false;
+  event.preventDefault();
+  event.returnValue = "";
+  return true;
+}
 
 // Meal Rail deliberately uses the platform history directly instead of a
 // router. This hook owns that boundary, including the edit entries that may
@@ -75,6 +97,13 @@ export function useHistoryView({
     return () => window.removeEventListener("popstate", handlePop);
   }, []);
 
+  useEffect(() => {
+    const handleBeforeUnload = (event) =>
+      warnBeforeUnload(dayEdit.current, event);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
   const pushView = useCallback((nextView, state = {}) => {
     const nextState = { view: nextView, ...state };
     window.history.pushState(nextState, "");
@@ -87,6 +116,16 @@ export function useHistoryView({
   const startDayEdit = useCallback((key) => {
     dayEdit.current = { active: true, dirty: false, key };
     window.history.pushState({ view: "day", day: key, edit: true }, "");
+  }, []);
+  const resumeDayEdit = useCallback((key) => {
+    dayEdit.current = { active: true, dirty: false, key };
+  }, []);
+  const replaceStaleDayEdit = useCallback(() => {
+    dayEdit.current = { active: false, dirty: false, key: null };
+    const state = window.history.state;
+    if (state?.view !== "day" || !state.edit) return;
+    const { edit: _edit, ...readOnlyState } = state;
+    window.history.replaceState(readOnlyState, "");
   }, []);
   const markDayEditDirty = useCallback(() => {
     dayEdit.current.dirty = true;
@@ -115,6 +154,8 @@ export function useHistoryView({
     back,
     dayEdit: {
       start: startDayEdit,
+      resume: resumeDayEdit,
+      replaceStale: replaceStaleDayEdit,
       markDirty: markDayEditDirty,
       finish: finishDayEdit,
       isDirty: isDayEditDirty,

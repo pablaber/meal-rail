@@ -36,7 +36,11 @@ import {
   removePlan,
   slotsFor,
 } from "./plans.js";
-import { HISTORY_VIEWS, useHistoryView } from "./useHistoryView.js";
+import {
+  HISTORY_VIEWS,
+  resumableDayEdit,
+  useHistoryView,
+} from "./useHistoryView.js";
 import { CalendarScreen } from "./screens/CalendarScreen.jsx";
 import { SettingsScreen } from "./screens/SettingsScreen.jsx";
 import { StripSettingsScreen } from "./screens/StripSettingsScreen.jsx";
@@ -192,16 +196,41 @@ export default function MealRail() {
     let alive = true;
     (async () => {
       const parsed = await load();
-      if (alive && parsed.status === "valid") {
+      // Strict Mode mounts, cleans up, and mounts this effect again in
+      // development. The abandoned async run must not reconcile history after
+      // its cleanup: doing so strips the edit flag before the live run can
+      // restore the editor and leaves a duplicate read-only entry on top.
+      if (!alive) return;
+      const loadedDays =
+        parsed.status === "valid" ? parsed.state.days || {} : {};
+      if (parsed.status === "valid") {
         setSettings({ ...DEFAULTS, ...(parsed.state.settings || {}) });
-        setDays(parsed.state.days || {});
-      } else if (alive && parsed.status === "unreadable") {
+        setDays(loadedDays);
+      } else if (parsed.status === "unreadable") {
         setRecovery(parsed);
+      }
+      // Reload keeps the current history entry. If it is a valid past-day edit,
+      // rebuild a clean draft from the durable record and reactivate the pop
+      // guard so the first Back returns to the read-only day. An edit entry we
+      // can no longer honor loses only its stale `edit` flag.
+      const resumedDay = resumableDayEdit(window.history.state, today);
+      if (resumedDay && parsed.status !== "unreadable") {
+        setDraft({
+          key: resumedDay,
+          record: loadedDays[resumedDay] || BLANK_DAY,
+        });
+        setDirty(false);
+        dayHistoryEdit.resume(resumedDay);
+      } else if (
+        window.history.state?.view === "day" &&
+        window.history.state?.edit
+      ) {
+        dayHistoryEdit.replaceStale();
       }
       if (window.history.state?.view === "plan" && window.history.state?.edit) {
         window.history.replaceState({ view: "plan" }, "");
       }
-      if (alive) setReady(true);
+      setReady(true);
     })();
     return () => {
       alive = false;
