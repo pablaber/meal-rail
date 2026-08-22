@@ -83,6 +83,11 @@ export default [
     rules: {
       "no-unused-vars": ["error", { ignoreRestSiblings: true }],
       "react/jsx-uses-vars": "error",
+      // Core `no-undef` does not read JSX element names, so a component that
+      // moved to another file and was never imported back is invisible to it —
+      // the build succeeds and the screen white-screens on the first render
+      // that reaches it. That is exactly how `IconPlus` left `App.jsx`.
+      "react/jsx-no-undef": "error",
       "theme-colors/no-component-colors": "error",
     },
   },
