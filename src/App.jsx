@@ -8,6 +8,7 @@ import {
   importFile,
   exportRawClipboard,
   importText,
+  summarizeBackup,
 } from "./storage.js";
 import {
   dayBadge,
@@ -51,6 +52,7 @@ import {
   DrinkDialog,
   EditDialog,
   PasteDialog,
+  RestoreDialog,
 } from "./components/Dialogs.jsx";
 import { DayRail } from "./components/DayRail.jsx";
 import { Screen, StatusLine } from "./components/Screen.jsx";
@@ -372,7 +374,7 @@ export default function MealRail() {
     const next = { ...settingsRef.current, ...patch };
     settingsRef.current = next;
     setSettings(next);
-    persist(next, days);
+    return persist(next, days);
   };
 
   const startPlanEdit = (plan = currentPlan, editingUpcoming = false) => {
@@ -511,12 +513,21 @@ export default function MealRail() {
   // Both ways in end here. A restore replaces everything — in state and on disk
   // — whichever way the JSON arrived, so a file and a paste can't drift into
   // meaning two different things.
-  const restoreBackup = (parsed) => {
+  const restoreBackup = async (parsed) => {
     const nextSettings = { ...DEFAULTS, ...(parsed.settings || {}) };
+    const nextDays = trimDays(parsed.days || {});
+    const ok = await persist(nextSettings, nextDays);
+    if (!ok) {
+      showNotice("Couldn't restore — this browser is blocking storage.", {
+        failed: true,
+      });
+      return false;
+    }
+    settingsRef.current = nextSettings;
     setSettings(nextSettings);
-    setDays(parsed.days || {});
-    persist(nextSettings, parsed.days || {});
+    setDays(nextDays);
     showNotice("Backup restored");
+    return true;
   };
 
   // Recovery is the one place a restore cannot be optimistic. The damaged raw
@@ -880,23 +891,19 @@ export default function MealRail() {
       <Screen
         overlay={
           <>
-            {recoveryConfirm && (
+            {recoveryConfirm?.kind === "reset" && (
               <ConfirmDialog
-                title={
-                  recoveryConfirm.kind === "reset"
-                    ? "Reset Meal Rail"
-                    : "Replace damaged data"
-                }
-                message={
-                  recoveryConfirm.kind === "reset"
-                    ? "This permanently deletes the damaged saved value. Export or copy it first if you may need it later."
-                    : "This permanently replaces the damaged saved value with the selected backup. Export or copy it first if you may need it later."
-                }
-                confirmLabel={
-                  recoveryConfirm.kind === "reset"
-                    ? "Reset everything"
-                    : "Replace data"
-                }
+                title="Reset Meal Rail"
+                message="This permanently deletes the damaged saved value. Export or copy it first if you may need it later."
+                confirmLabel="Reset everything"
+                onClose={() => setRecoveryConfirm(null)}
+                onConfirm={resolveRecovery}
+              />
+            )}
+            {recoveryConfirm?.kind === "replace" && (
+              <RestoreDialog
+                damaged
+                summary={summarizeBackup(recoveryConfirm.parsed)}
                 onClose={() => setRecoveryConfirm(null)}
                 onConfirm={resolveRecovery}
               />
@@ -982,7 +989,7 @@ export default function MealRail() {
                 onClick={async () => {
                   try {
                     const parsed = await importFile();
-                    setRecoveryConfirm({ kind: "replace", parsed });
+                    if (parsed) setRecoveryConfirm({ kind: "replace", parsed });
                   } catch (e) {
                     setRecoveryError(e.message);
                   }
