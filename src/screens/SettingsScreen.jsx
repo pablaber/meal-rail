@@ -142,14 +142,20 @@ export function SettingsScreen({
           <IconChevronRight color={C.muted} />
         </button>
 
+        {/* The row text names the switch through `aria-labelledby` rather than
+              by wrapping it in the `<label>`. A `<button>` is labelable, but
+              HTML-AAM names a button from its *contents* — which here are the
+              empty knob — so whether the row text is read at all is left to the
+              browser. Pointing at the span is not ambiguous anywhere. */}
         <label className="mt-4 flex items-center justify-between gap-3 text-sm">
-          <span>Offer a workout snack</span>
+          <span id="workout-switch-label">Offer a workout snack</span>
           <button
             onClick={() =>
               patchSettings({ trainingEnabled: !settings.trainingEnabled })
             }
             role="switch"
             aria-checked={settings.trainingEnabled}
+            aria-labelledby="workout-switch-label"
             className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{
               background: settings.trainingEnabled ? C.done : C.surfaceHi,
@@ -166,13 +172,14 @@ export function SettingsScreen({
         </label>
 
         <label className="mt-4 flex items-center justify-between gap-3 text-sm">
-          <span>Open notes after logging</span>
+          <span id="notes-switch-label">Open notes after logging</span>
           <button
             onClick={() =>
               patchSettings({ promptNotes: !settings.promptNotes })
             }
             role="switch"
             aria-checked={settings.promptNotes}
+            aria-labelledby="notes-switch-label"
             className="h-6 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
             style={{
               background: settings.promptNotes ? C.done : C.surfaceHi,

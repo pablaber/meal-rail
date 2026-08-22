@@ -97,23 +97,11 @@ These are known-broken and reproducible, as distinct from the improvements below
 
 ## Accessibility
 
-- [ ] Add initial focus, focus trapping, and focus restoration to dialogs.
-  **Escape handling already exists** — `Dialog` (`App.jsx:2022-2028`) listens for
-  it, and backdrop-tap-to-close is wired at `:2032`. The screen-level Escape
-  handler (`:349-359`) deliberately defers to an open dialog. So the remaining gap
-  is narrower than this item originally implied: focus never enters the dialog, is
-  not trapped, and is not returned to the trigger on close. Verified.
-- [ ] **Give the workout switch an explicit accessible name.** The `<label>` at
-  `App.jsx:730` wraps both the text `<span>` and the `<button role="switch">`
-  (`:732-737`). `button` is a labelable element, but HTML-AAM computes a button's
-  name from its *contents*, and the contents here are the empty knob `<span>` —
-  so whether the label text is picked up is browser-dependent. One
-  `aria-label="Offer a workout snack"` (or `aria-labelledby` pointing at the span)
-  removes the ambiguity.
-- [ ] **Calendar day targets are 34px** (`CALENDAR_DAY_SIZE`, `App.jsx:107`),
-  below the 44px iOS guideline, and the wrapping button (`:882-890`) adds no
-  padding of its own. Padding the button rather than growing the disc keeps the
-  grid's proportions.
+- [ ] **The two settings switches are 24px tall** (`h-6 w-11`,
+  `SettingsScreen.jsx`), short of the 44px guideline the calendar's day cells now
+  meet. The wrapping `<label>` widens what a finger can land on, but only across
+  the row's own height. Not the same fix as the calendar's: growing the switch
+  changes how the row reads, so it wants a look rather than a padding value.
 
 ## Architecture and maintainability
 
