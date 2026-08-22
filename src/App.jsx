@@ -1628,6 +1628,8 @@ function MealPlanEditor({
 function PlanStartDialog({ onClose, onTomorrow, onToday }) {
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  // The option that keeps today's entries, which is also the first one listed.
+  const tomorrowRef = useRef(null);
 
   const choose = async (action) => {
     if (submittingRef.current) return;
@@ -1649,6 +1651,7 @@ function PlanStartDialog({ onClose, onTomorrow, onToday }) {
       title="Today already has entries"
       eyebrow="Choose when to start"
       ariaLabel="Choose when the new meal plan starts"
+      initialFocus={tomorrowRef}
       onClose={close}
     >
       <p className="mt-3 text-sm" style={{ color: C.muted }}>
@@ -1658,6 +1661,7 @@ function PlanStartDialog({ onClose, onTomorrow, onToday }) {
       </p>
       <div className="mt-5 flex flex-col gap-2">
         <button
+          ref={tomorrowRef}
           onClick={() => choose(onTomorrow)}
           disabled={submitting}
           aria-busy={submitting}

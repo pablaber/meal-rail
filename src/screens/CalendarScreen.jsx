@@ -7,6 +7,13 @@ import { Screen } from "../components/Screen.jsx";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_SIZE = 34;
+// The disc stays 34px and the target around it is 44 — the iOS minimum. Growing
+// the disc instead would cost the grid its proportions and make every grade
+// shout; the padding is invisible until you put a finger or a focus ring on it.
+// Every cell reserves the same 44px box, buttons and today and future days
+// alike, or the rows a month's last week falls into would sit closer together
+// than the rest.
+const DAY_TARGET = "h-11 w-11 items-center justify-center";
 
 const BADGE_LABEL = {
   gold: "Perfect day",
@@ -120,11 +127,19 @@ export function CalendarScreen({ days, plans, today, onBack, onOpenDay }) {
           </MonthButton>
         </div>
 
-        <div className="mt-6 grid grid-cols-7 gap-y-2">
+        {/* No row gap: the 44px targets carry their own 5px of padding, so a
+              gap on top of it would push the discs almost twice as far apart as
+              they used to sit and make the month a screen and a half. Without
+              one the rows tile the way the strip's columns do — every pixel
+              between two discs belongs to one of them — and the grid comes out
+              within a couple of pixels of the height it was. The weekday row
+              keeps its own margin, which is the only gap that was ever
+              deliberate. */}
+        <div className="mt-6 grid grid-cols-7">
           {WEEKDAYS.map((weekday) => (
             <span
               key={weekday}
-              className="mb-1 text-center text-[10px] uppercase tracking-widest"
+              className="mb-3 text-center text-[10px] uppercase tracking-widest"
               style={{ color: C.muted, fontFamily: FONT.mono }}
             >
               {weekday}
@@ -139,20 +154,22 @@ export function CalendarScreen({ days, plans, today, onBack, onOpenDay }) {
                     aria-label={`Open ${formatDate(cell.key)}${
                       cell.badge ? `, ${BADGE_LABEL[cell.badge]}` : ", no grade"
                     }`}
-                    className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    className={`flex ${DAY_TARGET} rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-white`}
                   >
                     <CalendarDay day={cell.day} tier={cell.badge} />
                   </button>
                 ) : (
-                  <CalendarDay
-                    day={cell.day}
-                    tier={cell.badge}
-                    isToday={cell.isToday}
-                  />
+                  <span className={`flex ${DAY_TARGET}`}>
+                    <CalendarDay
+                      day={cell.day}
+                      tier={cell.badge}
+                      isToday={cell.isToday}
+                    />
+                  </span>
                 )}
               </div>
             ) : (
-              <div key={`blank-${index}`} aria-hidden="true" />
+              <div key={`blank-${index}`} className="h-11" aria-hidden="true" />
             ),
           )}
         </div>
