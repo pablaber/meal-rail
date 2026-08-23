@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { drinkCircles } from "../grade.js";
+import { extrasByPosition } from "../rail.js";
 import { C, FONT } from "../theme.js";
 import { DRINK_DOTS_MAX, DrinkDot } from "./HistoryStrip.jsx";
 
@@ -37,27 +38,12 @@ export function DayRail({
   const workouts = record.workouts || [];
   const drinks = record.drinks || 0;
 
-  // Place each off-slot entry after however many meals were already checked when
-  // it happened. Snacks and workouts share the rail, so they are positioned
-  // together and then ordered by clock within a position.
-  const extrasAt = useMemo(() => {
-    const map = {};
-    [
-      ...(record.unplanned || []).map((e) => ({ kind: "unplanned", e })),
-      ...(record.workouts || []).map((e) => ({ kind: "workout", e })),
-    ].forEach((item) => {
-      let pos = 0;
-      slots.forEach((s) => {
-        const t = (record.checks || {})[s.id];
-        if (t && t <= item.e.t) pos += 1;
-      });
-      (map[pos] = map[pos] || []).push(item);
-    });
-    Object.values(map).forEach((list) =>
-      list.sort((a, b) => a.e.t.localeCompare(b.e.t)),
-    );
-    return map;
-  }, [record, slots]);
+  // Snacks and workouts share the rail. They sit after every planned meal that
+  // happened before them, then keep clock order when they share a position.
+  const extrasAt = useMemo(
+    () => extrasByPosition(record, slots),
+    [record, slots],
+  );
 
   return (
     <section className="relative mt-6">
