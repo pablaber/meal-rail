@@ -63,3 +63,12 @@ outside the backup workflow until those semantics are designed.
 If you later want real sync, `storage.js` is the seam: `load()` and `save()` are
 already async, so swapping their bodies for `fetch()` against a small service is a
 change to one file. Nothing in `App.jsx` needs to know.
+
+## Cross-device sync (in progress)
+
+Optional sync between devices is designed but not built, and local-only stays
+the default when it is. [`docs/sync-overview.md`](docs/sync-overview.md) is the
+short version of how it behaves — what merges silently, what asks you to choose,
+and what signing out, erasing, or restoring a backup each do to the cloud copy.
+[`docs/sync-protocol-v1.md`](docs/sync-protocol-v1.md) is the full contract the
+implementation is written against.
