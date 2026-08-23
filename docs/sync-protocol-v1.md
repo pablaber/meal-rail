@@ -10,6 +10,10 @@ shape, that is a bug in this document — raise it against #64 rather than
 deciding locally, because the whole point of the contract is that two
 independently written halves converge.
 
+For a short, non-implementer summary of the same behaviour — what merges
+silently, what asks the user, and what the lifecycle actions do — see
+[`sync-overview.md`](sync-overview.md).
+
 ## 0. How to read this
 
 - **MUST / MUST NOT / MAY** carry their usual weight. Anything phrased as
