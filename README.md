@@ -62,4 +62,7 @@ outside the backup workflow until those semantics are designed.
 
 If you later want real sync, `storage.js` is the seam: `load()` and `save()` are
 already async, so swapping their bodies for `fetch()` against a small service is a
-change to one file. Nothing in `App.jsx` needs to know.
+change to one file. Nothing in `App.jsx` needs to know. The contract that work
+would implement — resources, revisions, conflicts, retention — is specified in
+[`docs/sync-protocol-v1.md`](docs/sync-protocol-v1.md). Nothing in the app
+implements it yet.
