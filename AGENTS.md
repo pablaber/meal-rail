@@ -11,12 +11,20 @@ npm run dev      # vite dev server
 npm run build    # production build to dist/
 npm run preview  # serve the built output
 npm test         # run domain tests with Node's built-in test runner
+npm run test:backend # run local Supabase database and concurrency tests
 npm run lint     # JavaScript/JSX and theme-color checks
 npm run format:check # verify formatting
 ```
 
 Node 26 (`.nvmrc`). There is no typecheck step — run tests, lint, and formatting
 checks, then verify behavioral changes by running the app.
+
+`test:backend` is intentionally not part of GitHub Actions because it requires
+the local Supabase Docker stack and PostgreSQL `psql` client. Before committing
+any database-related change — including migrations, RLS policies, database
+functions, grants, retention behavior, or backend tests — start the local stack
+and run `npm run test:backend`. Do not modify tests or verification assets merely
+to make this check pass.
 
 ## Previewing a dev build
 
