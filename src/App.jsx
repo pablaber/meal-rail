@@ -1,13 +1,17 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { C, FONT } from "./theme.js";
 import {
-  load,
-  save,
   clear,
-  exportRawFile,
-  importFile,
   exportRawClipboard,
+  exportRawFile,
+  holdResource,
+  importFile,
   importText,
+  load,
+  releaseResource,
+  restore,
+  save,
+  subscribe,
   summarizeBackup,
 } from "./storage.js";
 import {
@@ -164,6 +168,8 @@ export default function MealRail() {
   const [planStartChoice, setPlanStartChoice] = useState(false);
   const [confirmCancelUpcoming, setConfirmCancelUpcoming] = useState(null);
   const planSavingRef = useRef(false);
+  const heldDayRef = useRef(null);
+  const heldSettingsRef = useRef(false);
 
   const {
     view,
@@ -174,11 +180,19 @@ export default function MealRail() {
     planEdit: planHistoryEdit,
   } = useHistoryView({
     onDayEditExit: () => {
+      if (heldDayRef.current) {
+        releaseResource(heldDayRef.current);
+        heldDayRef.current = null;
+      }
       setDraft(null);
       setDirty(false);
     },
     onDayEditDiscard: () => setConfirmDiscard(true),
     onPlanEditExit: () => {
+      if (heldSettingsRef.current) {
+        releaseResource("settings");
+        heldSettingsRef.current = false;
+      }
       setPlanDraft(null);
       setPlanDirty(false);
     },
@@ -191,30 +205,35 @@ export default function MealRail() {
     },
   });
 
-  // Load
+  // Subscribe before loading so an engine transition cannot race the initial
+  // state reconciliation. Strict Mode tears this listener down before remount.
   useEffect(() => {
     let alive = true;
+    const unsubscribe = subscribe((event) => {
+      if (!alive || event.type !== "state") return;
+      const nextSettings = { ...DEFAULTS, ...event.state.settings };
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      setDays(event.state.days);
+    });
     (async () => {
       const parsed = await load();
-      // Strict Mode mounts, cleans up, and mounts this effect again in
-      // development. The abandoned async run must not reconcile history after
-      // its cleanup: doing so strips the edit flag before the live run can
-      // restore the editor and leaves a duplicate read-only entry on top.
       if (!alive) return;
       const loadedDays =
         parsed.status === "valid" ? parsed.state.days || {} : {};
       if (parsed.status === "valid") {
-        setSettings({ ...DEFAULTS, ...(parsed.state.settings || {}) });
+        const nextSettings = { ...DEFAULTS, ...(parsed.state.settings || {}) };
+        settingsRef.current = nextSettings;
+        setSettings(nextSettings);
         setDays(loadedDays);
       } else if (parsed.status === "unreadable") {
         setRecovery(parsed);
       }
-      // Reload keeps the current history entry. If it is a valid past-day edit,
-      // rebuild a clean draft from the durable record and reactivate the pop
-      // guard so the first Back returns to the read-only day. An edit entry we
-      // can no longer honor loses only its stale `edit` flag.
       const resumedDay = resumableDayEdit(window.history.state, today);
       if (resumedDay && parsed.status !== "unreadable") {
+        const id = `day:${resumedDay}`;
+        holdResource(id);
+        heldDayRef.current = id;
         setDraft({
           key: resumedDay,
           record: loadedDays[resumedDay] || BLANK_DAY,
@@ -234,6 +253,9 @@ export default function MealRail() {
     })();
     return () => {
       alive = false;
+      unsubscribe();
+      if (heldDayRef.current) releaseResource(heldDayRef.current);
+      if (heldSettingsRef.current) releaseResource("settings");
     };
   }, []);
 
@@ -408,6 +430,8 @@ export default function MealRail() {
 
   const startPlanEdit = (plan = currentPlan, editingUpcoming = false) => {
     const slots = plan.slots.map((slot) => ({ ...slot }));
+    holdResource("settings");
+    heldSettingsRef.current = true;
     setPlanDraft({
       baseDay: today,
       from: editingUpcoming ? tomorrow : today,
@@ -421,13 +445,14 @@ export default function MealRail() {
   const updatePlanSlots = (change) => {
     planHistoryEdit.markDirty();
     setPlanDirty(true);
-    setPlanDraft((draft) => ({
-      ...draft,
-      slots: change(draft.slots),
-    }));
+    setPlanDraft((draft) => ({ ...draft, slots: change(draft.slots) }));
   };
 
   const leavePlanEdit = () => {
+    if (heldSettingsRef.current) {
+      releaseResource("settings");
+      heldSettingsRef.current = false;
+    }
     planHistoryEdit.finish();
     setPlanDraft(null);
     setPlanDirty(false);
@@ -451,7 +476,6 @@ export default function MealRail() {
       return false;
     }
     planSavingRef.current = true;
-
     const cleanSlots = slots.map((slot) => ({
       ...slot,
       label: slot.label.trim(),
@@ -464,16 +488,11 @@ export default function MealRail() {
           ? today
           : null,
     });
-    const nextSettings = {
-      ...settingsRef.current,
-      plans: applied.plans,
-    };
+    const nextSettings = { ...settingsRef.current, plans: applied.plans };
     const nextDays = applied.days;
-
     const ok = await persist(nextSettings, nextDays);
     planSavingRef.current = false;
     if (!ok) return false;
-
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
     setDays(nextDays);
@@ -488,13 +507,8 @@ export default function MealRail() {
     if (!planDraft || planDraft.slots.some((slot) => !slot.label.trim()))
       return;
     if (planDraft.baseDay !== today) {
-      commitPlanChange({
-        from: planDraft.from,
-        slots: planDraft.slots,
-      });
-      return;
-    }
-    if (planDraft.editingUpcoming) {
+      commitPlanChange({ from: planDraft.from, slots: planDraft.slots });
+    } else if (planDraft.editingUpcoming) {
       commitPlanChange({ from: tomorrow, slots: planDraft.slots });
     } else if (isEmptyDay(days[today] || BLANK_DAY)) {
       commitPlanChange({ from: today, slots: planDraft.slots });
@@ -513,7 +527,6 @@ export default function MealRail() {
       });
       return;
     }
-
     const nextSettings = {
       ...settingsRef.current,
       plans: removePlan(settingsRef.current.plans, target.from),
@@ -528,6 +541,10 @@ export default function MealRail() {
 
   useEffect(() => {
     if (!planDraft || planDraft.baseDay === today) return;
+    if (heldSettingsRef.current) {
+      releaseResource("settings");
+      heldSettingsRef.current = false;
+    }
     planHistoryEdit.finish();
     setPlanDraft(null);
     setPlanDirty(false);
@@ -539,13 +556,11 @@ export default function MealRail() {
     goBack();
   }, [planDraft, showNotice, today]);
 
-  // Both ways in end here. A restore replaces everything — in state and on disk
-  // — whichever way the JSON arrived, so a file and a paste can't drift into
-  // meaning two different things.
+  // Both ways in end here. A restore replaces everything in state and on disk.
   const restoreBackup = async (parsed) => {
     const nextSettings = { ...DEFAULTS, ...(parsed.settings || {}) };
     const nextDays = trimDays(parsed.days || {});
-    const ok = await persist(nextSettings, nextDays);
+    const ok = await restore({ settings: nextSettings, days: nextDays });
     if (!ok) {
       showNotice("Couldn't restore — this browser is blocking storage.", {
         failed: true,
@@ -559,12 +574,8 @@ export default function MealRail() {
     return true;
   };
 
-  // Recovery is the one place a restore cannot be optimistic. The damaged raw
-  // value remains the only durable copy until save succeeds, so the normal app
-  // stays blocked if the browser refuses either replacement or reset.
   const resolveRecovery = async () => {
     setRecoveryError("");
-
     if (recoveryConfirm.kind === "reset") {
       const ok = await clear();
       if (!ok) {
@@ -577,8 +588,8 @@ export default function MealRail() {
     } else {
       const parsed = recoveryConfirm.parsed;
       const nextSettings = { ...DEFAULTS, ...(parsed.settings || {}) };
-      const nextDays = parsed.days || {};
-      const ok = await save({ settings: nextSettings, days: nextDays });
+      const nextDays = trimDays(parsed.days || {});
+      const ok = await restore({ settings: nextSettings, days: nextDays });
       if (!ok) {
         setRecoveryError(
           "Couldn't replace the damaged data — this browser is blocking storage.",
@@ -589,11 +600,9 @@ export default function MealRail() {
       setSettings(nextSettings);
       setDays(nextDays);
     }
-
     setRecoveryConfirm(null);
     setRecovery(null);
   };
-
   // A backfilled entry has no clock to read, so it lands at its slot's usual
   // hour and hands the editor straight over. Today's entries can opt into that
   // same handoff, with focus on their note. Cancelling an editor leaves the
@@ -733,14 +742,19 @@ export default function MealRail() {
   // Opening the editor is its own history entry, so the device's back button
   // and the in-app Cancel leave it by the same door.
   const startEdit = (key) => {
+    const id = `day:${key}`;
+    holdResource(id);
+    heldDayRef.current = id;
     setDraft({ key, record: days[key] || BLANK_DAY });
     setDirty(false);
     dayHistoryEdit.start(key);
   };
 
-  // Drops the guard before walking back, so the pop this causes is let through
-  // rather than turned into another question.
   const leaveEdit = () => {
+    if (heldDayRef.current) {
+      releaseResource(heldDayRef.current);
+      heldDayRef.current = null;
+    }
     dayHistoryEdit.finish();
     setDraft(null);
     setDirty(false);
@@ -756,8 +770,6 @@ export default function MealRail() {
 
   const saveEdit = () => {
     const nextDays = { ...days };
-    // A day left with nothing on it loses its key rather than keeping a hollow
-    // record: opening a blank day and saving it unchanged has to be a no-op.
     if (isEmptyDay(draft.record)) delete nextDays[draft.key];
     else nextDays[draft.key] = draft.record;
     setDays(nextDays);
@@ -765,7 +777,6 @@ export default function MealRail() {
     showNotice(`Saved ${formatDateShort(draft.key)}`);
     leaveEdit();
   };
-
   const recentDays = useMemo(() => {
     const out = [];
     for (let i = 13; i >= 0; i--) {

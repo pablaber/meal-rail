@@ -168,12 +168,25 @@ conflict are compared using it, so it is part of the contract.
 
 To canonicalize a payload:
 
-1. **Normalize** (§3.2, §3.3): drop optional keys whose value is empty. An
-   absent `notes` and a `notes: {}` are the same day.
+1. **Normalize** (§3.2, §3.3): remove object members whose value is `null` or
+   `undefined`; omit empty known day optionals (`checks`, `notes`, `unplanned`,
+   `workouts`); omit `drinks` only when it is `0`; preserve `planned: 0`; retain
+   all other JSON fields.
 2. **Order keys** lexicographically by UTF-16 code unit at every object level.
-3. **Preserve array order.** `plans[].slots`, `unplanned` and `workouts` are
-   ordered; their order is data, not presentation.
-4. **Serialize** with no whitespace, no trailing commas, integers as integers.
+3. **Preserve every array element and order.** Arrays such as `plans[].slots`,
+   `unplanned`, and `workouts` are data, not presentation.
+4. **Serialize** compactly with JSON: no whitespace or trailing commas.
+
+The dirty hash is 128-bit FNV-1a from
+[RFC 9923](https://www.rfc-editor.org/rfc/rfc9923), over UTF-8 bytes of that
+canonical string. Start at offset basis
+`0x6c62272e07bb014262b821756295c58d`; for each byte XOR then multiply by prime
+`0x0000000001000000000000000000013b`, reducing modulo $2^{128}$ after each
+multiply. Encode the final unsigned accumulator most-significant nibble first
+as exactly 32 lowercase hexadecimal characters. Contract vectors:
+`"" → "6c62272e07bb014262b821756295c58d"`,
+`"foo" → "a68d5ed15f8b5822836dbc79768d78bf"`, and
+`"😀" → "6633bd7871757277b806e877951e7228"`.
 
 The result is the _canonical string_. Two comparisons use it:
 
@@ -416,6 +429,7 @@ the key (§9.5).
 "pending": [
   {
     "mutationId": "d0b2b7de-6b1c-4a94-8d51-0f43a9b2c1aa",
+
     "kind": "day",
     "key": "2026-08-21",
     "op": "write",
@@ -432,6 +446,14 @@ the key (§9.5).
   }
 ]
 ```
+
+`sentPayload` is optional and only exists on an `inflight` write. A
+never-attempted queued entry stores no payload. Immediately before its first
+request the client persists normalized `sentPayload` and marks it `inflight`;
+response-uncertain retries MUST reuse that payload, hash, and mutation id even
+after later local edits. Deletes carry no payload. A changed queued write is
+replaced with a new UUID before first send; later edits to an inflight entry set
+`dirtyAgain` and derive a fresh mutation only after the pinned entry settles.
 
 Rules, all of them load-bearing:
 
@@ -1623,6 +1645,16 @@ Two keys, one purpose each:
 | `mealrail:v1`      | `{ settings, days }` — the user's data                                              | **yes**      | yes                             |
 | `mealrail:sync:v1` | device id, account, cursor, base map, pending queue, conflicts, staging, quarantine | **no**       | yes (§6.8)                      |
 
+The metadata object is `{ device, account, needsReconcile, cursor, base,
+pending, conflicts, staging, quarantined, lastSyncedAt }`. `device` is
+`{ deviceId, label, platform, firstSeenAt, lastSeenAt }`; `account` is `null`
+or `{ userId }`; `cursor` is a non-negative integer; `base` and `pending` use
+§§3.7–3.8; `staging` is keyed by resource id; `quarantined` is a resource-id
+array; timestamps are ISO strings or `null`. Unknown top-level fields survive
+for forward compatibility. An invalid required field, duplicate pending
+resource, invalid resource id, malformed JSON, or non-object metadata
+invalidates the complete value rather than partially salvaging lineage.
+
 Exports serialize the `{ settings, days }` object `App.jsx` holds, so sync
 metadata cannot leak into one by accident — it is not in the object. `parseBackup`
 continues to validate `{ settings, days }` and ignores anything else, so a
@@ -1691,6 +1723,13 @@ The failure modes, given the write order in §11.4:
 | `mealrail:v1` succeeded, metadata write failed | Data is durable; the base map and pending queue are stale. | On next load the base hash disagrees with local content, so the resource is simply **dirty**. It is pushed, comes back `stale` with identical or different content, and §5.4 resolves it. |
 | Metadata write succeeded, data write failed    | Impossible by the write order.                             | —                                                                                                                                                                                         |
 | Metadata corrupt or unparseable                | Treated as absent.                                         | Sync re-enters `reconciling` (§7). Local data untouched.                                                                                                                                  |
+
+Replacement operations are not ordinary saves. Restore first writes metadata
+that retains `device` and `account` but clears `cursor`, `base`, `pending`,
+`conflicts`, `staging`, `quarantined`, and `lastSyncedAt`, with
+`needsReconcile: true`; only then replaces `mealrail:v1`. A failed metadata
+reset leaves user data untouched. Erase removes `mealrail:sync:v1` before
+`mealrail:v1`; a metadata-removal failure aborts before user data is deleted.
 
 **The recovery argument in one sentence: a lost metadata write degrades to a
 spurious push, never to lost data**, because the dirty set is re-derived from the
