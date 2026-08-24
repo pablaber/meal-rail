@@ -34,7 +34,7 @@ test("FNV-1a contract vectors and canonical normalization", async (t) => {
   const resource = canonicalResource("day", {
     planned: 0,
     drinks: 0,
-    checks: {},
+    checks: { s1: null },
     workouts: [],
     z: null,
     b: 1,
@@ -80,5 +80,24 @@ test("same-tick saves coalesce to the final durable snapshot", async (t) => {
     {
       "2026-08-24": { planned: 2 },
     },
+  );
+});
+
+test("a queued save cannot overwrite a following restore", async (t) => {
+  globalThis.localStorage = storage();
+  t.after(() => {
+    globalThis.localStorage = originalStorage;
+  });
+  const { restore, save } = await fresh();
+  const saved = save({ settings: { plans: [] }, days: {} });
+  const restored = restore({
+    settings: { plans: [] },
+    days: { "2026-08-24": { planned: 2 } },
+  });
+  assert.equal(await saved, true);
+  assert.equal(await restored, true);
+  assert.deepEqual(
+    JSON.parse(globalThis.localStorage.getItem("mealrail:v1")).days,
+    { "2026-08-24": { planned: 2 } },
   );
 });

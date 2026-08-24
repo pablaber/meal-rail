@@ -209,8 +209,11 @@ export default function MealRail() {
   // state reconciliation. Strict Mode tears this listener down before remount.
   useEffect(() => {
     let alive = true;
+    let initializing = true;
+    let stateDuringLoad = null;
     const unsubscribe = subscribe((event) => {
       if (!alive || event.type !== "state") return;
+      if (initializing) stateDuringLoad = event.state;
       const nextSettings = { ...DEFAULTS, ...event.state.settings };
       settingsRef.current = nextSettings;
       setSettings(nextSettings);
@@ -219,16 +222,18 @@ export default function MealRail() {
     (async () => {
       const parsed = await load();
       if (!alive) return;
-      const loadedDays =
-        parsed.status === "valid" ? parsed.state.days || {} : {};
-      if (parsed.status === "valid") {
-        const nextSettings = { ...DEFAULTS, ...(parsed.state.settings || {}) };
+      const state =
+        stateDuringLoad || (parsed.status === "valid" ? parsed.state : null);
+      const loadedDays = state?.days || {};
+      if (state) {
+        const nextSettings = { ...DEFAULTS, ...(state.settings || {}) };
         settingsRef.current = nextSettings;
         setSettings(nextSettings);
         setDays(loadedDays);
       } else if (parsed.status === "unreadable") {
         setRecovery(parsed);
       }
+      initializing = false;
       const resumedDay = resumableDayEdit(window.history.state, today);
       if (resumedDay && parsed.status !== "unreadable") {
         const id = `day:${resumedDay}`;
@@ -742,9 +747,15 @@ export default function MealRail() {
   // Opening the editor is its own history entry, so the device's back button
   // and the in-app Cancel leave it by the same door.
   const startEdit = (key) => {
-    const id = `day:${key}`;
-    holdResource(id);
-    heldDayRef.current = id;
+    if (heldDayRef.current) {
+      releaseResource(heldDayRef.current);
+      heldDayRef.current = null;
+    }
+    if (key !== today) {
+      const id = `day:${key}`;
+      holdResource(id);
+      heldDayRef.current = id;
+    }
     setDraft({ key, record: days[key] || BLANK_DAY });
     setDirty(false);
     dayHistoryEdit.start(key);

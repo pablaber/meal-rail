@@ -17,7 +17,6 @@ let knownState = null;
 let knownMetadata;
 let queue = Promise.resolve();
 let pendingSave = null;
-let saveScheduled = false;
 
 const isObject = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -90,22 +89,24 @@ function deviceDefaults(label, platform) {
 }
 
 function canonicalize(value, day = false) {
-  if (Array.isArray(value))
+  if (Array.isArray(value)) {
     return value.map((entry) => canonicalize(entry, false));
+  }
   if (!isObject(value)) return value;
   const normalized = {};
   for (const key of Object.keys(value).sort()) {
-    const entry = value[key];
+    const entry = canonicalize(value[key], false);
     if (entry === null || entry === undefined) continue;
     if (
       day &&
       ["checks", "notes", "unplanned", "workouts"].includes(key) &&
       ((isObject(entry) && !Object.keys(entry).length) ||
         (Array.isArray(entry) && !entry.length))
-    )
+    ) {
       continue;
+    }
     if (day && key === "drinks" && entry === 0) continue;
-    normalized[key] = canonicalize(entry, false);
+    normalized[key] = entry;
   }
   return normalized;
 }
@@ -439,15 +440,28 @@ function deriveMetadata(state, metadata) {
         : local && (!base || base.deleted || local.hash !== base.hash)
           ? mutation(id, local, base)
           : null;
-    if (!desired) continue;
-    if (pendingIndex < 0) next.pending.push(desired);
-    else if (next.pending[pendingIndex].state === "queued")
+    if (!desired) {
+      if (pendingIndex >= 0 && next.pending[pendingIndex].state === "queued") {
+        next.pending.splice(pendingIndex, 1);
+      }
+      continue;
+    }
+    if (pendingIndex < 0) {
+      next.pending.push(desired);
+    } else if (
+      next.pending[pendingIndex].state === "queued" &&
+      (next.pending[pendingIndex].op !== desired.op ||
+        next.pending[pendingIndex].expectedRev !== desired.expectedRev ||
+        next.pending[pendingIndex].payloadHash !== desired.payloadHash)
+    ) {
       next.pending[pendingIndex] = desired;
-    else if (
-      next.pending[pendingIndex].payloadHash !== desired.payloadHash ||
-      next.pending[pendingIndex].op !== desired.op
-    )
+    } else if (
+      next.pending[pendingIndex].state === "inflight" &&
+      (next.pending[pendingIndex].payloadHash !== desired.payloadHash ||
+        next.pending[pendingIndex].op !== desired.op)
+    ) {
       next.pending[pendingIndex].dirtyAgain = true;
+    }
   }
   return next;
 }
@@ -498,46 +512,53 @@ export async function load() {
 
 export function save(state) {
   return new Promise((resolve) => {
-    if (!pendingSave) pendingSave = { state, resolvers: [] };
-    else pendingSave.state = state;
-    pendingSave.resolvers.push(resolve);
-    if (!saveScheduled) {
-      saveScheduled = true;
-      queueMicrotask(() => {
-        const batch = pendingSave;
-        pendingSave = null;
-        saveScheduled = false;
-        enqueue(() => {
-          try {
-            localStorage.setItem(LOCAL_STATE_KEY, JSON.stringify(batch.state));
-          } catch {
-            return false;
-          }
-          knownState = clone(batch.state);
-          const read = knownMetadata
-            ? { status: "valid", metadata: knownMetadata }
-            : readMetadata();
-          if (
-            read.status === "valid" &&
-            read.metadata.account &&
-            !read.metadata.needsReconcile
-          ) {
-            const next = deriveMetadata(batch.state, read.metadata);
-            try {
-              localStorage.setItem(SYNC_META_KEY, JSON.stringify(next));
-              knownMetadata = next;
-              statusEvent(next.pending.length ? "pending" : "synced", next);
-            } catch {
-              knownMetadata = read.metadata;
-              statusEvent("failed", read.metadata, "storage");
-            }
-          }
-          return true;
-        }).then((result) =>
-          batch.resolvers.forEach((resolveSave) => resolveSave(result)),
-        );
-      });
+    if (pendingSave) {
+      pendingSave.state = state;
+      pendingSave.resolvers.push(resolve);
+      return;
     }
+
+    pendingSave = { state, resolvers: [resolve] };
+    enqueue(
+      () =>
+        new Promise((finish) => {
+          queueMicrotask(() => {
+            const batch = pendingSave;
+            pendingSave = null;
+            let result;
+            try {
+              localStorage.setItem(
+                LOCAL_STATE_KEY,
+                JSON.stringify(batch.state),
+              );
+              knownState = clone(batch.state);
+              const read = knownMetadata
+                ? { status: "valid", metadata: knownMetadata }
+                : readMetadata();
+              if (
+                read.status === "valid" &&
+                read.metadata.account &&
+                !read.metadata.needsReconcile
+              ) {
+                const next = deriveMetadata(batch.state, read.metadata);
+                try {
+                  localStorage.setItem(SYNC_META_KEY, JSON.stringify(next));
+                  knownMetadata = next;
+                  statusEvent(next.pending.length ? "pending" : "synced", next);
+                } catch {
+                  knownMetadata = read.metadata;
+                  statusEvent("failed", read.metadata, "storage");
+                }
+              }
+              result = true;
+            } catch {
+              result = false;
+            }
+            batch.resolvers.forEach((resolveSave) => resolveSave(result));
+            finish(result);
+          });
+        }),
+    );
   });
 }
 
@@ -593,13 +614,28 @@ export function initializeSyncMetadata({ userId, label, platform }) {
 
 export function disableSyncMetadata() {
   return enqueue(() => {
+    const read = readMetadata();
+    if (read.status === "absent") return true;
+    if (read.status !== "valid") return false;
+    const metadata = {
+      ...read.metadata,
+      account: null,
+      needsReconcile: false,
+      cursor: 0,
+      base: {},
+      pending: [],
+      conflicts: {},
+      staging: {},
+      quarantined: [],
+      lastSyncedAt: null,
+    };
     try {
-      localStorage.removeItem(SYNC_META_KEY);
+      localStorage.setItem(SYNC_META_KEY, JSON.stringify(metadata));
     } catch {
       return false;
     }
-    knownMetadata = undefined;
-    statusEvent("off", null);
+    knownMetadata = metadata;
+    statusEvent("off", metadata);
     return true;
   });
 }
@@ -615,6 +651,9 @@ export function updateSyncMetadata(updater) {
       return false;
     }
     if (!validMetadata(next)) return false;
+    if (knownState && next.account && !next.needsReconcile) {
+      next = deriveMetadata(knownState, next);
+    }
     try {
       localStorage.setItem(SYNC_META_KEY, JSON.stringify(next));
     } catch {
