@@ -33,6 +33,49 @@ npm run build
 Use `npm run format` to apply the repository's two-space, double-quote, and
 semicolon formatting conventions.
 
+## Supabase backend development
+
+The optional sync backend is defined by version-controlled files in `supabase/`.
+It requires Docker and the PostgreSQL `psql` client for local development.
+Create a separate Supabase development project with **Enable automatic RLS**
+checked and **Automatically expose new tables** unchecked; migrations still
+enable RLS and grant access explicitly.
+
+Start a disposable local stack, rebuild it from the migrations, and run the
+database and transaction-ordering checks:
+
+```bash
+npm run db:start
+npm run db:reset
+npm run test:backend
+npm run db:stop
+```
+
+The first start downloads the Supabase images. Tests create isolated users and
+data in the local database only; they must not run against production data.
+
+To deploy after the local checks pass:
+
+```bash
+npx supabase login
+npx supabase link --project-ref <development-project-ref>
+npx supabase db push --dry-run
+npx supabase db push
+```
+
+Commit `supabase/config.toml`, migrations, and tests. Keep CLI access tokens,
+database passwords, secret/service-role keys, and SMTP credentials out of the
+repository. A project URL and publishable key may eventually live in an ignored
+`.env.local`, but a secret key must never use a `VITE_` name or enter browser
+code.
+
+For a local rollback, use `npx supabase migration down --local --last 1` and
+then reset to the desired migration. Hosted migrations are forward-only:
+back up the database, stop dependent clients, create a new compensating
+migration with `npx supabase migration new revert_<change>`, review it with
+`db push --dry-run`, and apply it normally. Do not edit hosted migration history
+or rewrite an already-applied migration.
+
 ## How it's put together
 
 React and Vite, with Tailwind for layout and a small palette in `theme.js` for
