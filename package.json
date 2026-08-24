@@ -9,6 +9,12 @@
     "preview": "vite preview",
     "test": "TZ=America/Detroit node --test",
     "test:watch": "TZ=America/Detroit node --test --watch",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset --local",
+    "test:db": "supabase test db --local",
+    "test:db:seq": "node supabase/tests/sync_concurrency.mjs",
+    "test:backend": "npm run test:db && npm run test:db:seq",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -24,6 +30,7 @@
     "eslint-plugin-react": "^7.37.5",
     "globals": "^17.9.0",
     "prettier": "^3.9.6",
+    "supabase": "^2.115.0",
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.1"
   }

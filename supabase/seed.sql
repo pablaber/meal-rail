@@ -1,0 +1,1 @@
+-- Intentionally empty. Database tests create and remove their own isolated data.
