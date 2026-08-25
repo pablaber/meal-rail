@@ -133,21 +133,26 @@ The Resend and Turnstile secrets belong only in hosted Supabase configuration.
 
 ### Production Auth configuration deployment
 
-`supabase/config.toml` stays local-only. Production settings live in the
-versioned `supabase/config.production.toml` template and resolve its secrets
-from the ignored root `.env` file. After Resend DNS is verified, copy
-`.env.example` to `.env`, replace every `*_replace_me` value, and run:
+`supabase/config.toml` contains the local-stack baseline and a
+`[remotes.production]` override for project `lwtgpdohoprfpjykjoee`. When
+`config push` targets that project, Supabase merges the remote Auth settings:
+the hosted URL, Turnstile secret, and Resend SMTP configuration override the
+local values without replacing the local contract.
+
+After Resend DNS is verified, copy `.env.example` to `.env` and replace every
+mock value. Then load those ignored values and push the named production
+remote:
 
 ```bash
-npm run config:push:production
+set -a
+. ./.env
+set +a
+npx supabase config push --project-ref "$SUPABASE_PROJECT_ID"
 ```
 
-The command requires `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`,
-`TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, and `SMTP_SENDER_EMAIL`. It
-temporarily applies the production template, pushes it to that project, and
-restores the local configuration even when the push fails. Do not run
-`npx supabase config push` directly from this checkout: that would push local
-URLs and the local Turnstile test secret.
+This requires `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`,
+`TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, and `SMTP_SENDER_EMAIL`. Do not put
+any of them in a `VITE_` variable or GitHub Pages build environment.
 
 ### Production validation
 

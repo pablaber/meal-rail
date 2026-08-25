@@ -415,3 +415,31 @@ enabled = true
 # declarative_schema_path = "./schemas"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# Hosted Auth overrides. `supabase config push --project-ref
+# "$SUPABASE_PROJECT_ID"` merges this block when it targets the production
+# project; the base Auth configuration remains the local-stack contract.
+[remotes.production]
+project_id = "lwtgpdohoprfpjykjoee"
+
+[remotes.production.auth]
+site_url = "https://pablaber.github.io/meal-rail/"
+additional_redirect_urls = [
+  "http://127.0.0.1:5173",
+  "http://localhost:5173",
+  "https://pablaber.github.io/meal-rail/",
+]
+
+[remotes.production.auth.captcha]
+enabled = true
+provider = "turnstile"
+secret = "env(TURNSTILE_SECRET_KEY)"
+
+[remotes.production.auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(RESEND_API_KEY)"
+admin_email = "env(SMTP_SENDER_EMAIL)"
+sender_name = "Meal Rail"
