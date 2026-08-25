@@ -150,9 +150,11 @@ set +a
 npx supabase config push --project-ref "$SUPABASE_PROJECT_ID"
 ```
 
-This requires `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`,
-`TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, and `SMTP_SENDER_EMAIL`. Do not put
-any of them in a `VITE_` variable or GitHub Pages build environment.
+Authenticate once with `npx supabase login` (or export
+`SUPABASE_ACCESS_TOKEN` for non-interactive automation). The `.env` file needs
+`SUPABASE_PROJECT_ID`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, and
+`SMTP_SENDER_EMAIL`. Do not put any of them in a `VITE_` variable or GitHub
+Pages build environment.
 
 ### Production validation
 
