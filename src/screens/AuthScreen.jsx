@@ -199,10 +199,12 @@ export function AuthScreen({ auth, onBack }) {
                   });
                 }}
               >
-                <Turnstile
-                  onToken={setCaptchaToken}
-                  resetSignal={resetSignal}
-                />
+                {!cooling && (
+                  <Turnstile
+                    onToken={setCaptchaToken}
+                    resetSignal={resetSignal}
+                  />
+                )}
                 <button
                   type="submit"
                   disabled={auth.busy || !captchaToken || cooling}
