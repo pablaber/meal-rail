@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <body
+    style="
+      margin: 0;
+      background: #171913;
+      color: #f6f2e8;
+      font-family: Arial, sans-serif;
+    "
+  >
+    <main style="max-width: 560px; margin: 0 auto; padding: 40px 24px">
+      <p
+        style="
+          margin: 0 0 24px;
+          color: #c6bfae;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          font-size: 12px;
+        "
+      >
+        Meal Rail
+      </p>
+      <h1 style="margin: 0 0 16px; font-size: 28px">Your sign-in code</h1>
+      <p style="margin: 0 0 24px; line-height: 1.5">
+        Enter this code in Meal Rail. It expires in 10 minutes.
+      </p>
+      <p
+        style="
+          margin: 0 0 24px;
+          padding: 16px;
+          background: #2a2d24;
+          border-radius: 8px;
+          font-family: monospace;
+          font-size: 30px;
+          letter-spacing: 0.18em;
+        "
+      >
+        {{ .Token }}
+      </p>
+      <p style="margin: 0; color: #c6bfae; line-height: 1.5">
+        If you did not request this code, you can ignore this email.
+      </p>
+    </main>
+  </body>
+</html>

@@ -14,12 +14,14 @@
     "db:reset": "supabase db reset --local",
     "test:db": "supabase test db --local",
     "test:db:seq": "node supabase/tests/sync_concurrency.mjs",
-    "test:backend": "npm run test:db && npm run test:db:seq",
+    "test:auth": "node supabase/tests/auth_integration.mjs",
+    "test:backend": "npm run test:db && npm run test:db:seq && npm run test:auth",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

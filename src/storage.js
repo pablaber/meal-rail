@@ -17,6 +17,19 @@ let knownState = null;
 let knownMetadata;
 let queue = Promise.resolve();
 let pendingSave = null;
+// Supabase Auth owns its session separately from Meal Rail data and backups.
+// Keeping the adapter here makes this the only new browser-storage boundary.
+export const authSessionStorage = {
+  getItem(key) {
+    return localStorage.getItem(key);
+  },
+  setItem(key, value) {
+    localStorage.setItem(key, value);
+  },
+  removeItem(key) {
+    localStorage.removeItem(key);
+  },
+};
 
 const isObject = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -591,6 +604,42 @@ export function initializeSyncMetadata({ userId, label, platform }) {
         ...deviceDefaults(label || device.label, platform || device.platform),
         lastSeenAt: at,
       },
+      account: { userId },
+      needsReconcile: true,
+      cursor: 0,
+      base: {},
+      pending: [],
+      conflicts: {},
+      staging: {},
+      quarantined: [],
+      lastSyncedAt: null,
+    };
+    try {
+      localStorage.setItem(SYNC_META_KEY, JSON.stringify(metadata));
+    } catch {
+      return false;
+    }
+    knownMetadata = metadata;
+    statusEvent("reconciling", metadata);
+    return true;
+  });
+}
+
+// An existing enabled sync record belongs to exactly one account. Auth may
+// resume it unchanged for that account, but a different account must begin a
+// fresh reconciliation while retaining the stable device identity.
+export function reconcileAuthenticatedIdentity(userId) {
+  return enqueue(() => {
+    if (typeof userId !== "string" || !userId) return false;
+    const read = readMetadata();
+    if (read.status === "absent") return true;
+    if (read.status !== "valid") return false;
+    if (!read.metadata.account || read.metadata.account.userId === userId) {
+      knownMetadata = read.metadata;
+      return true;
+    }
+    const metadata = {
+      ...read.metadata,
       account: { userId },
       needsReconcile: true,
       cursor: 0,

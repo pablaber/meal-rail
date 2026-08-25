@@ -37,6 +37,8 @@ export function SettingsScreen({
   onDaysCleared,
   onShowNotice,
   onOverlayChange,
+  auth,
+  onOpenAuth,
 }) {
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -207,6 +209,26 @@ export function SettingsScreen({
             <span className="block text-sm">Two-week strip</span>
             <span className="mt-0.5 block text-xs" style={{ color: C.muted }}>
               {stripMarkLabel} · {stripGradeLabel}
+            </span>
+          </span>
+          <IconChevronRight color={C.muted} />
+        </button>
+
+        <button
+          onClick={onOpenAuth}
+          className="mt-4 flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        >
+          <span className="min-w-0">
+            <span className="block text-sm">Sync account</span>
+            <span
+              className="mt-0.5 block truncate text-xs"
+              style={{ color: C.muted }}
+            >
+              {auth.status === "signed_in"
+                ? auth.email
+                : auth.status === "unavailable"
+                  ? "Cloud sign-in isn't configured. Meal Rail still works locally."
+                  : "Local only"}
             </span>
           </span>
           <IconChevronRight color={C.muted} />

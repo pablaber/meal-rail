@@ -14,6 +14,8 @@ import {
   subscribe,
   summarizeBackup,
 } from "./storage.js";
+import { getAuthState, startAuth, subscribeAuth } from "./auth.js";
+
 import {
   dayBadge,
   daySummary,
@@ -48,6 +50,8 @@ import {
 import { CalendarScreen } from "./screens/CalendarScreen.jsx";
 import { SettingsScreen } from "./screens/SettingsScreen.jsx";
 import { StripSettingsScreen } from "./screens/StripSettingsScreen.jsx";
+import { AuthScreen } from "./screens/AuthScreen.jsx";
+
 import { FitHeading, PastDay, PastDayEditor } from "./screens/DayScreens.jsx";
 import {
   HistoryStrip,
@@ -154,6 +158,8 @@ export default function MealRail() {
   const [recoveryPasteOpen, setRecoveryPasteOpen] = useState(false);
   const [recoveryError, setRecoveryError] = useState("");
   const [today, setToday] = useState(dayKey());
+  const [auth, setAuth] = useState(getAuthState);
+
   const [settingsOverlayOpen, setSettingsOverlayOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   // A past day is edited against a draft rather than written through on every
@@ -264,6 +270,15 @@ export default function MealRail() {
     };
   }, []);
 
+  // Authentication is optional and starts beside, never ahead of, the
+  // local-first storage load. An unavailable Auth boundary must not delay the
+  // meal rail's ready path.
+  useEffect(() => {
+    const unsubscribe = subscribeAuth(setAuth);
+    void startAuth();
+    return unsubscribe;
+  }, []);
+
   // The only way a notice is set. Each one replaces whatever was on the line
   // and takes its predecessor's timer with it, so the update check's
   // "Checking…" → "You're on the latest version" reads as one line changing
@@ -278,6 +293,10 @@ export default function MealRail() {
 
   const openSettings = () => {
     pushView("settings");
+  };
+
+  const openAuth = () => {
+    pushView("auth");
   };
 
   const openPlanSettings = () => {
@@ -1105,10 +1124,16 @@ export default function MealRail() {
         onPatchSettings={patchSettings}
         onRestoreBackup={restoreBackup}
         onDaysCleared={() => setDays({})}
+        auth={auth}
+        onOpenAuth={openAuth}
         onShowNotice={showNotice}
         onOverlayChange={setSettingsOverlayOpen}
       />
     );
+  }
+
+  if (view === "auth") {
+    return <AuthScreen auth={auth} onBack={goBack} />;
   }
 
   if (view === "plan") {
