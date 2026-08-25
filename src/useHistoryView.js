@@ -3,7 +3,14 @@ import { RETENTION_DAYS, dateAt, dayKey, shiftDay } from "./day.js";
 
 // Screens that participate in the browser's history. Keeping the list beside
 // the history adapter makes reload and popstate validation use the same source.
-export const HISTORY_VIEWS = ["settings", "calendar", "day", "strip", "plan"];
+export const HISTORY_VIEWS = [
+  "settings",
+  "auth",
+  "calendar",
+  "day",
+  "strip",
+  "plan",
+];
 
 const initialView = () => {
   const view = window.history.state?.view;

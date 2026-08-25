@@ -4,7 +4,7 @@ A daily meal checklist. Planned meals sit as nodes on a vertical rail through th
 day; anything eaten outside those slots is logged as a mark beside the rail rather
 than on it — visible, but not scored.
 
-No accounts, no server, no calorie counting. Data lives in the browser.
+Local-first, with an optional email-code identity for future sync. Meal data stays in the browser unless sync is explicitly enabled.
 
 It installs as a PWA — open the deployed URL, then Share → Add to Home Screen. It
 runs full-screen and works offline.
@@ -75,6 +75,96 @@ back up the database, stop dependent clients, create a new compensating
 migration with `npx supabase migration new revert_<change>`, review it with
 `db push --dry-run`, and apply it normally. Do not edit hosted migration history
 or rewrite an already-applied migration.
+
+## Email OTP authentication
+
+Email sign-in identifies an optional sync account; signing in alone does not
+upload or enable sync. The app continues to log meals locally when Auth is
+signed out, offline, unavailable, or unconfigured.
+
+### Local setup
+
+After starting the local stack, run `npx supabase status -o env`. Copy
+`.env.example` to ignored `.env.local` and set:
+
+```dotenv
+VITE_SUPABASE_URL=http://127.0.0.1:54321
+VITE_SUPABASE_PUBLISHABLE_KEY=<publishable key from supabase status>
+VITE_TURNSTILE_SITE_KEY=1x00000000000000000000AA
+```
+
+Use the local legacy anon key only when this Supabase CLI does not expose a
+publishable key. Inbucket at `http://127.0.0.1:54324` receives local OTP mail.
+The local configuration uses Cloudflare's public always-pass Turnstile test
+pair; never use a real Resend key locally.
+
+### Hosted operator runbook
+
+1. In Resend, verify a dedicated `auth.<your-domain>` sending subdomain. Add
+   its generated SPF/MX and DKIM DNS records. Start
+   `_dmarc.auth.<your-domain>` at `v=DMARC1; p=none; rua=mailto:<report-mailbox>;`;
+   after verified delivery, move to `p=quarantine` or `p=reject`. Disable
+   click/open tracking for this transactional sender.
+2. Create a Resend sending-only API key. In Supabase **Authentication → SMTP**,
+   use `smtp.resend.com`, port `465`, username `resend`, that API key as the
+   password, sender name `Meal Rail`, and
+   `sign-in@auth.<your-domain>` as the sender address.
+3. In hosted Supabase Auth, retain email signup, leave anonymous/password UI
+   unused, set OTP length `6`, expiry `600` seconds, resend `60` seconds,
+   email sends `6/hour`, sign-up/sign-in requests `10/five minutes/IP`, and
+   token verifications `10/five minutes/IP`. Copy
+   `supabase/templates/magic_link.html` into the **Magic Link or OTP** template
+   with subject `Your Meal Rail sign-in code`; confirm rendered mail has no link.
+4. Create a Cloudflare Turnstile Managed widget restricted to
+   `pablaber.github.io`. Put its public site key in the GitHub Actions variable
+   `VITE_TURNSTILE_SITE_KEY`. Put its secret only in Supabase
+   **Authentication → Attack Protection → CAPTCHA**, selecting Turnstile.
+5. In Supabase **Authentication → URL Configuration**, set Site URL to
+   `https://pablaber.github.io/meal-rail/` and allow exactly
+   `http://127.0.0.1:5173` and `http://localhost:5173` for development.
+6. Add GitHub repository **Actions variables** (not secrets):
+   `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and
+   `VITE_TURNSTILE_SITE_KEY`. Vite intentionally publishes these identifiers.
+
+Never place `RESEND_API_KEY`, the Turnstile secret, Supabase secret/service-role
+keys, `SUPABASE_ACCESS_TOKEN`, or database passwords in a `VITE_` variable,
+GitHub Pages build variables, browser code, screenshots, or committed files.
+The Resend and Turnstile secrets belong only in hosted Supabase configuration.
+
+### Production Auth configuration deployment
+
+`supabase/config.toml` contains the local-stack baseline and a
+`[remotes.production]` override for project `lwtgpdohoprfpjykjoee`. When
+`config push` targets that project, Supabase merges the remote Auth settings:
+the hosted URL, Turnstile secret, and Resend SMTP configuration override the
+local values without replacing the local contract.
+
+After Resend DNS is verified, copy `.env.example` to `.env` and replace every
+mock value. Then load those ignored values and push the named production
+remote:
+
+```bash
+set -a
+. ./.env
+set +a
+npx supabase config push --project-ref "$SUPABASE_PROJECT_ID"
+```
+
+Authenticate once with `npx supabase login` (or export
+`SUPABASE_ACCESS_TOKEN` for non-interactive automation). The `.env` file needs
+`SUPABASE_PROJECT_ID`, `TURNSTILE_SECRET_KEY`, `RESEND_API_KEY`, and
+`SMTP_SENDER_EMAIL`. Do not put any of them in a `VITE_` variable or GitHub
+Pages build environment.
+
+### Production validation
+
+Request codes for both a new and a returning address; both must show the same
+generic confirmation. Verify delivered mail contains a six-digit code and no
+link; invalid, expired, reused, rapid-resend, and excess-attempt cases must not
+reveal account existence. Check delivered headers for SPF, DKIM, and DMARC pass;
+install/relaunch the PWA to confirm the session persists; sign out one of two
+devices and confirm the other stays signed in. Finally, take one device offline
+during Auth and confirm local meal logging remains usable.
 
 ## How it's put together
 

@@ -101,3 +101,30 @@ test("a queued save cannot overwrite a following restore", async (t) => {
     { "2026-08-24": { planned: 2 } },
   );
 });
+
+test("identity reconciliation preserves same-account metadata and resets another account", async (t) => {
+  globalThis.localStorage = storage();
+  t.after(() => {
+    globalThis.localStorage = originalStorage;
+  });
+  const {
+    SYNC_META_KEY,
+    initializeSyncMetadata,
+    reconcileAuthenticatedIdentity,
+  } = await fresh();
+  assert.equal(await initializeSyncMetadata({ userId: "first-user" }), true);
+  const sameAccount = globalThis.localStorage.getItem(SYNC_META_KEY);
+  assert.equal(await reconcileAuthenticatedIdentity("first-user"), true);
+  assert.equal(globalThis.localStorage.getItem(SYNC_META_KEY), sameAccount);
+  assert.equal(await reconcileAuthenticatedIdentity("second-user"), true);
+  const reset = JSON.parse(globalThis.localStorage.getItem(SYNC_META_KEY));
+  assert.equal(reset.account.userId, "second-user");
+  assert.equal(reset.needsReconcile, true);
+  assert.deepEqual(reset.base, {});
+  assert.deepEqual(reset.pending, []);
+  assert.deepEqual(reset.conflicts, {});
+  assert.deepEqual(reset.staging, {});
+  assert.deepEqual(reset.quarantined, []);
+  assert.equal(reset.cursor, 0);
+  assert.equal(reset.lastSyncedAt, null);
+});
