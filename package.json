@@ -12,6 +12,7 @@
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset --local",
+    "config:push:production": "node scripts/push-supabase-production.mjs",
     "test:db": "supabase test db --local",
     "test:db:seq": "node supabase/tests/sync_concurrency.mjs",
     "test:auth": "node supabase/tests/auth_integration.mjs",
