@@ -319,6 +319,38 @@ publishes to GitHub Pages. The workflow passes `BASE_PATH=/<repo-name>/` because
 project Pages sites are served from a subpath; `vite.config.js` reads it. Never
 hardcode a base path.
 
+### Pushing production Supabase Auth configuration
+
+When the user asks to “push prod”, “push production Auth config”, or otherwise
+apply hosted Supabase configuration, push the `[remotes.production]` override
+in `supabase/config.toml` to project `lwtgpdohoprfpjykjoee`. The base config is
+the local-stack contract; the remote override supplies the hosted URL,
+Turnstile, and Resend SMTP settings.
+
+The user keeps real values in the ignored root `.env`. Do not ask for, print,
+commit, or put these values in a `VITE_` variable:
+
+```dotenv
+SUPABASE_PROJECT_ID=lwtgpdohoprfpjykjoee
+TURNSTILE_SECRET_KEY=...
+RESEND_API_KEY=...
+SMTP_SENDER_EMAIL=sign-in@auth.<your-domain>
+```
+
+They must authenticate with `npx supabase login` first, unless a non-interactive
+`SUPABASE_ACCESS_TOKEN` is securely available. Then run:
+
+```bash
+set -a
+. ./.env
+set +a
+npx supabase config push --project-ref "$SUPABASE_PROJECT_ID"
+```
+
+The Supabase project secret key is not a management credential and must never
+be used for this command. A report that the remote is “up to date” means no
+remote configuration diff remains to apply.
+
 ## Pull requests
 
 When a change has an associated GitHub issue, link the pull request by including
