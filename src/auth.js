@@ -19,6 +19,29 @@ const ATTEMPTS_ERROR = "Too many code attempts. Request a new code.";
 const SUCCESS_MESSAGE =
   "If that address can receive Meal Rail email, enter the six-digit code we sent. It expires in 10 minutes.";
 
+const rpcRetryAfter = new Map();
+const retryAfterMilliseconds = (value, now = Date.now()) => {
+  if (!value) return null;
+  if (/^\d+(?:\.\d+)?$/.test(value)) return Math.max(0, Number(value) * 1000);
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : Math.max(0, timestamp - now);
+};
+
+export function consumeRpcRetryAfter(rpcName, now = Date.now()) {
+  const value = rpcRetryAfter.get(rpcName);
+  rpcRetryAfter.delete(rpcName);
+  return retryAfterMilliseconds(value, now);
+}
+
+const recordingFetch = async (input, init) => {
+  const response = await fetch(input, init);
+  const url = typeof input === "string" ? input : input?.url;
+  const match = url?.match(/\/rest\/v1\/rpc\/(sync_[^/?#]+)/);
+  if (match && response.status === 429)
+    rpcRetryAfter.set(match[1], response.headers.get("Retry-After"));
+  return response;
+};
+
 const initialState = () => ({
   status: "loading",
   userId: null,
@@ -49,6 +72,7 @@ const configuredClient = () => {
         autoRefreshToken: true,
         detectSessionInUrl: false,
       },
+      global: { fetch: recordingFetch },
     });
   } catch {
     return null;

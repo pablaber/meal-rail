@@ -15,6 +15,7 @@ import {
   summarizeBackup,
 } from "./storage.js";
 import { getAuthState, startAuth, subscribeAuth } from "./auth.js";
+import { startSync, stopSync, syncOnForeground } from "./sync.js";
 
 import {
   dayBadge,
@@ -260,6 +261,7 @@ export default function MealRail() {
       if (window.history.state?.view === "plan" && window.history.state?.edit) {
         window.history.replaceState({ view: "plan" }, "");
       }
+      startSync();
       setReady(true);
     })();
     return () => {
@@ -267,6 +269,7 @@ export default function MealRail() {
       unsubscribe();
       if (heldDayRef.current) releaseResource(heldDayRef.current);
       if (heldSettingsRef.current) releaseResource("settings");
+      stopSync();
     };
   }, []);
 
@@ -358,11 +361,16 @@ export default function MealRail() {
   // Roll over at midnight / on refocus
   useEffect(() => {
     const tick = () => setToday(dayKey());
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      tick();
+      syncOnForeground();
+    };
     const i = setInterval(tick, 30000);
-    document.addEventListener("visibilitychange", tick);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(i);
-      document.removeEventListener("visibilitychange", tick);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 
