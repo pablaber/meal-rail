@@ -52,11 +52,11 @@ const validDayKey = (key) => {
 const validResourceId = (id) =>
   id === "settings" ||
   (typeof id === "string" && id.startsWith("day:") && validDayKey(id.slice(4)));
-const resourceParts = (id) =>
+export const resourceParts = (id) =>
   id === "settings"
     ? { kind: "settings", key: "settings" }
     : { kind: "day", key: id.slice(4) };
-const resourceId = (kind, key) =>
+export const resourceId = (kind, key) =>
   kind === "settings" ? "settings" : `day:${key}`;
 
 function uuid() {
@@ -244,7 +244,7 @@ function validateBackupShape(state) {
   });
 }
 
-function migrateDay(record) {
+export function migrateDay(record) {
   if (!record || !record.training) return record;
   const { training, ...day } = record;
   const checks = { ...(day.checks || {}) };
@@ -277,6 +277,22 @@ function migrate(state) {
   delete settings.promptSnackNotes;
   settings = migratePlans(settings, days, dayKey());
   return { settings, days };
+}
+
+export function normalizeRemotePayload(kind, payload, currentSettings = {}) {
+  if (!isObject(payload)) throw new Error("Invalid remote payload");
+  if (kind === "day") return canonicalResource("day", migrateDay(payload));
+  if (kind === "settings") {
+    const local = Object.fromEntries(
+      DEVICE_LOCAL_SETTINGS.map((key) => [key, currentSettings[key]]),
+    );
+    const migrated = migrate({
+      settings: { ...payload, ...local },
+      days: {},
+    }).settings;
+    return { ...canonicalResource("settings", migrated), payload: migrated };
+  }
+  throw new Error("Unknown resource kind");
 }
 
 function validBase(base) {
@@ -336,6 +352,44 @@ function validPending(pending) {
   );
 }
 
+function validRejected(rejected) {
+  return (
+    isObject(rejected) &&
+    Object.entries(rejected).every(
+      ([id, entry]) =>
+        validResourceId(id) &&
+        isObject(entry) &&
+        ["absent", "invalid", "too_large"].includes(entry.reason) &&
+        (entry.op === "write" || entry.op === "delete") &&
+        (entry.op === "delete"
+          ? entry.payloadHash === null
+          : typeof entry.payloadHash === "string") &&
+        (entry.detail === null || typeof entry.detail === "string"),
+    )
+  );
+}
+
+function validHalt(halt) {
+  return (
+    halt === null ||
+    (isObject(halt) &&
+      ["unsupported_protocol", "forbidden", "malformed_response"].includes(
+        halt.reason,
+      ) &&
+      Number.isInteger(halt.protocol) &&
+      typeof halt.detail === "string")
+  );
+}
+
+function validQuarantineVersions(versions) {
+  return (
+    isObject(versions) &&
+    Object.entries(versions).every(
+      ([id, version]) => validResourceId(id) && Number.isInteger(version),
+    )
+  );
+}
+
 function validMetadata(metadata) {
   return (
     isObject(metadata) &&
@@ -359,6 +413,10 @@ function validMetadata(metadata) {
     Object.keys(metadata.staging).every(validResourceId) &&
     Array.isArray(metadata.quarantined) &&
     metadata.quarantined.every(validResourceId) &&
+    (!("rejected" in metadata) || validRejected(metadata.rejected)) &&
+    (!("halt" in metadata) || validHalt(metadata.halt)) &&
+    (!("quarantineVersions" in metadata) ||
+      validQuarantineVersions(metadata.quarantineVersions)) &&
     (metadata.lastSyncedAt === null ||
       typeof metadata.lastSyncedAt === "string")
   );
@@ -374,9 +432,14 @@ function readMetadata() {
   if (raw === null) return { status: "absent" };
   try {
     const parsed = JSON.parse(raw);
-    return validMetadata(parsed)
-      ? { status: "valid", metadata: parsed }
-      : { status: "corrupt" };
+    if (!validMetadata(parsed)) return { status: "corrupt" };
+    const metadata = {
+      ...parsed,
+      rejected: parsed.rejected || {},
+      halt: parsed.halt || null,
+      quarantineVersions: parsed.quarantineVersions || {},
+    };
+    return { status: "valid", metadata };
   } catch {
     return { status: "corrupt" };
   }
@@ -405,7 +468,7 @@ function resources(state) {
   ];
 }
 
-function mutation(id, resource, base) {
+export function createPendingMutation(id, resource, base) {
   const { kind, key } = resourceParts(id);
   return {
     mutationId: uuid(),
@@ -427,6 +490,9 @@ function mutation(id, resource, base) {
 
 function deriveMetadata(state, metadata) {
   const next = clone(metadata);
+  next.rejected ||= {};
+  next.quarantineVersions ||= {};
+  next.halt ||= null;
   const current = new Map(resources(state));
   const cutoff = shiftDay(dayKey(), -RETENTION_DAYS);
   const ids = [...new Set([...current.keys(), ...Object.keys(next.base)])].sort(
@@ -434,29 +500,45 @@ function deriveMetadata(state, metadata) {
       a === "settings" ? -1 : b === "settings" ? 1 : a.localeCompare(b),
   );
   for (const id of ids) {
-    if (next.quarantined.includes(id)) continue;
     const local = current.get(id);
     const base = next.base[id];
     const pendingIndex = next.pending.findIndex(
       (entry) => resourceId(entry.kind, entry.key) === id,
     );
-    if (!local && id !== "settings" && base && id.slice(4) < cutoff) {
+    if (!local && id !== "settings" && id.slice(4) < cutoff) {
       delete next.base[id];
       delete next.staging[id];
+      delete next.quarantineVersions[id];
+      delete next.rejected[id];
       next.quarantined = next.quarantined.filter((value) => value !== id);
       if (pendingIndex >= 0) next.pending.splice(pendingIndex, 1);
       continue;
     }
+    if (
+      next.conflicts[id] ||
+      next.staging[id] ||
+      next.quarantined.includes(id) ||
+      next.quarantineVersions[id] !== undefined
+    )
+      continue;
     const desired =
       !local && base
-        ? mutation(id, null, base)
+        ? createPendingMutation(id, null, base)
         : local && (!base || base.deleted || local.hash !== base.hash)
-          ? mutation(id, local, base)
+          ? createPendingMutation(id, local, base)
           : null;
+    const rejected = next.rejected[id];
+    if (
+      rejected &&
+      desired &&
+      rejected.op === desired.op &&
+      rejected.payloadHash === desired.payloadHash
+    )
+      continue;
+    if (rejected) delete next.rejected[id];
     if (!desired) {
-      if (pendingIndex >= 0 && next.pending[pendingIndex].state === "queued") {
+      if (pendingIndex >= 0 && next.pending[pendingIndex].state === "queued")
         next.pending.splice(pendingIndex, 1);
-      }
       continue;
     }
     if (pendingIndex < 0) {
@@ -585,6 +667,10 @@ export function getSyncMetadata() {
   });
 }
 
+export function getLocalState() {
+  return enqueue(() => (knownState ? clone(knownState) : null));
+}
+
 export function initializeSyncMetadata({ userId, label, platform }) {
   return enqueue(() => {
     if (typeof userId !== "string" || !userId) return false;
@@ -612,6 +698,9 @@ export function initializeSyncMetadata({ userId, label, platform }) {
       conflicts: {},
       staging: {},
       quarantined: [],
+      rejected: {},
+      halt: null,
+      quarantineVersions: {},
       lastSyncedAt: null,
     };
     try {
@@ -648,6 +737,9 @@ export function reconcileAuthenticatedIdentity(userId) {
       conflicts: {},
       staging: {},
       quarantined: [],
+      rejected: {},
+      halt: null,
+      quarantineVersions: {},
       lastSyncedAt: null,
     };
     try {
@@ -676,6 +768,9 @@ export function disableSyncMetadata() {
       conflicts: {},
       staging: {},
       quarantined: [],
+      rejected: {},
+      halt: null,
+      quarantineVersions: {},
       lastSyncedAt: null,
     };
     try {
@@ -736,7 +831,7 @@ export function preparePendingMutation(id) {
       (entry.op !== (current ? "write" : "delete") ||
         (current && entry.payloadHash !== current.hash))
     ) {
-      entry = mutation(id, current, metadata.base[id]);
+      entry = createPendingMutation(id, current, metadata.base[id]);
       metadata.pending[index] = entry;
     }
     if (entry.state === "queued") {
@@ -797,6 +892,9 @@ export function restore(state) {
         conflicts: {},
         staging: {},
         quarantined: [],
+        rejected: {},
+        halt: null,
+        quarantineVersions: {},
         lastSyncedAt: null,
       };
       try {

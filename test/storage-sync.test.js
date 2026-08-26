@@ -128,3 +128,19 @@ test("identity reconciliation preserves same-account metadata and resets another
   assert.equal(reset.cursor, 0);
   assert.equal(reset.lastSyncedAt, null);
 });
+
+test("remote settings normalization keeps device-local values", async (t) => {
+  globalThis.localStorage = storage();
+  t.after(() => {
+    globalThis.localStorage = originalStorage;
+  });
+  const { normalizeRemotePayload } = await fresh();
+  const remote = normalizeRemotePayload(
+    "settings",
+    { plans: [], promptNotes: true },
+    { lastBackupAt: "2026-08-25T12:00:00.000Z" },
+  );
+  assert.equal(remote.payload.lastBackupAt, "2026-08-25T12:00:00.000Z");
+  assert.equal(remote.payload.promptNotes, true);
+  assert.equal(remote.canonical.includes("lastBackupAt"), false);
+});
